@@ -53,6 +53,7 @@
 #include "phy/robust_modem.hh"
 #include "perf_log.hh"
 #include "control_port.hh"
+#include "kiss_server.hh"
 
 #ifdef WITH_UI
 #include "tnc_ui_state.hh"
@@ -120,43 +121,6 @@ inline bool check_port_available(const std::string& bind_address, int port) {
 
 
 
-class ClientConnection {
-public:
-    int fd;
-    KISSParser parser;
-    std::vector<uint8_t> write_buffer;
-    std::mutex write_mutex;
-    bool connected = true;
-    
-    ClientConnection(int fd, std::function<void(uint8_t, uint8_t, const std::vector<uint8_t>&)> callback)
-        : fd(fd), parser(callback) {}
-    
-    static constexpr size_t MAX_WRITE_BUFFER = 1024 * 1024;
-
-    void send(const std::vector<uint8_t>& data) {
-        std::lock_guard<std::mutex> lock(write_mutex);
-        if (write_buffer.size() + data.size() > MAX_WRITE_BUFFER)
-            return;
-        write_buffer.insert(write_buffer.end(), data.begin(), data.end());
-    }
-    
-    bool flush() {
-        std::lock_guard<std::mutex> lock(write_mutex);
-        if (write_buffer.empty()) return true;
-        
-        ssize_t sent = ::send(fd, write_buffer.data(), write_buffer.size(), MSG_NOSIGNAL);
-        if (sent < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) return true;
-            return false;
-        }
-        write_buffer.erase(write_buffer.begin(), write_buffer.begin() + sent);
-        return true;
-    }
-};
-
-
-
-
 // TNC
 static int parse_seq(const std::vector<uint8_t>& p) {
     if (p.size() < 10 || memcmp(p.data(), "SEQ:", 4) != 0 || p[9] != ':')
@@ -202,7 +166,7 @@ public:
     std::function<bool(bool on)> external_ptt;
     std::function<void(const float* samples, int n)> rx_tap;
 
-    KISSTNC(const TNCConfig& config) : config_(config) {
+    KISSTNC(const TNCConfig& config) : config_(config), kiss_server_(make_kiss_iface(), g_verbose) {
         // Allocate OFDM encoder/decoder
         std::cerr << "  Creating OFDM encoder/decoder" << std::endl;
         encoder_ = std::make_unique<Encoder48k>();
@@ -365,36 +329,8 @@ public:
         }
 #endif
         
-        server_fd_ = socket(AF_INET, SOCK_STREAM, 0);
-        if (server_fd_ < 0) {
-            throw std::runtime_error("Failed to create socket");
-        }
-        
-        int opt = 1;
-        setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-        
-        struct sockaddr_in addr;
-        memset(&addr, 0, sizeof(addr));
-        addr.sin_family = AF_INET;
-        if (inet_pton(AF_INET, config_.bind_address.c_str(), &addr.sin_addr) != 1) {
-            close(server_fd_);
-            throw std::runtime_error("Invalid bind address: " + config_.bind_address);
-        }
-        addr.sin_port = htons(config_.port);
+        kiss_server_.open(config_.bind_address, config_.port);
 
-        if (bind(server_fd_, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            close(server_fd_);
-            throw std::runtime_error("Failed to bind to port " + std::to_string(config_.port));
-        }
-        
-        if (listen(server_fd_, 5) < 0) {
-            close(server_fd_);
-            throw std::runtime_error("Failed to listen");
-        }
-        
-        fcntl(server_fd_, F_SETFL, O_NONBLOCK);
-        
-        std::cerr << "KISS TNC listening on " << config_.bind_address << ":" << config_.port << std::endl;
         std::cerr << "Callsign: " << config_.callsign << std::endl;
         if (config_.modem_type == 1) {
             std::cerr << "Mode: MFSK " << MFSK_MODE_NAMES[config_.mfsk_mode] << std::endl;
@@ -478,87 +414,8 @@ public:
 
         // Main
         while (g_running) {
-            struct sockaddr_in client_addr;
-            socklen_t client_len = sizeof(client_addr);
-            int client_fd = accept(server_fd_, (struct sockaddr*)&client_addr, &client_len);
-            
-            if (client_fd >= 0) {
-                {
-                    std::lock_guard<std::mutex> lock(clients_mutex_);
-                    if (clients_.size() >= MAX_CLIENTS) {
-                        ui_log("KISS: client limit reached, rejecting connection");
-                        close(client_fd);
-                        client_fd = -1;
-                    }
-                }
-            }
+            kiss_server_.poll();
 
-            if (client_fd >= 0) {
-                // Set TCP_NODELAY
-                int flag = 1;
-                setsockopt(client_fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
-                fcntl(client_fd, F_SETFL, O_NONBLOCK);
-
-                char ip_str[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &client_addr.sin_addr, ip_str, sizeof(ip_str));
-                ui_log(std::string("Client connected: ") + ip_str + ":" + std::to_string(ntohs(client_addr.sin_port)));
-
-                auto callback = [this](uint8_t port, uint8_t cmd, const std::vector<uint8_t>& data) {
-                    handle_kiss_frame(port, cmd, data);
-                };
-
-                std::lock_guard<std::mutex> lock(clients_mutex_);
-                clients_.emplace_back(std::make_unique<ClientConnection>(client_fd, callback));
-                
-#ifdef WITH_UI
-                if (g_ui_state) {
-                    g_ui_state->client_count = clients_.size();
-                }
-#endif
-            }
-            
-            // Poll clients for data
-            {
-                std::lock_guard<std::mutex> lock(clients_mutex_);
-                for (auto it = clients_.begin(); it != clients_.end();) {
-                    auto& client = *it;
-                    
-                    // Read data
-                    uint8_t buf[4096];
-                    ssize_t n = recv(client->fd, buf, sizeof(buf), MSG_DONTWAIT);
-                    
-                    if (n > 0) {
-                        client->parser.process(buf, n);
-                    } else if (n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK)) {
-                        // Disconnected
-                        ui_log("Client disconnected");
-                        close(client->fd);
-                        it = clients_.erase(it);
-#ifdef WITH_UI
-                        if (g_ui_state) {
-                            g_ui_state->client_count = clients_.size();
-                        }
-#endif
-                        continue;
-                    }
-                    
-                    // Flush write buffer
-                    if (!client->flush()) {
-                        ui_log("Client write error, disconnecting");
-                        close(client->fd);
-                        it = clients_.erase(it);
-#ifdef WITH_UI
-                        if (g_ui_state) {
-                            g_ui_state->client_count = clients_.size();
-                        }
-#endif
-                        continue;
-                    }
-                    
-                    ++it;
-                }
-            }
-            
             int64_t audio_now_ms = steady_now_ms();
             if (audio_now_ms - last_audio_check_ms >= 1000) {
                 last_audio_check_ms = audio_now_ms;
@@ -591,91 +448,61 @@ public:
 
         set_ptt(false);
 
-        for (auto& client : clients_) {
-            close(client->fd);
-        }
-        close(server_fd_);
+        kiss_server_.close_all();
     }
     
 private:
-    void handle_kiss_frame(uint8_t /*port*/, uint8_t cmd, const std::vector<uint8_t>& data) {
-        if (cmd == KISS::CMD_DATA) {
-            if (g_verbose) {
-                std::cerr << kiss_frame_visualize(data.data(), data.size()) << std::endl;
-            }
-            
-            size_t max_payload = payload_size_ - 2;
-            
-            if (config_.fragmentation_enabled && fragmenter_.needs_fragmentation(data.size(), max_payload)) {
-                auto fragments = fragmenter_.fragment(data, max_payload);
-                ui_log("TX: Fragmenting " + std::to_string(data.size()) + " bytes into " + 
-                       std::to_string(fragments.size()) + " fragments");
-                for (auto& frag : fragments) {
-                    if (g_verbose) {
-                        std::cerr << packet_visualize(frag.data(), frag.size(), true, true) << std::endl;
-                    }
-                    tx_queue_.push(TxPacket(std::move(frag)));
-                }
+    KISSServer::TNCInterface make_kiss_iface() {
+        KISSServer::TNCInterface iface;
+        iface.submit_frame = [this](const std::vector<uint8_t>& data) { submit_frame(data); };
+        iface.log = [](const std::string& msg) { ui_log(msg); };
+        iface.client_count_changed = [](size_t n) {
 #ifdef WITH_UI
-                if (g_ui_state) {
-                    g_ui_state->tx_queue_size = tx_queue_.size();
-                }
+            if (g_ui_state) {
+                g_ui_state->client_count = n;
+            }
+#else
+            (void)n;
 #endif
-            } else {
-                std::vector<uint8_t> frame_data = data;
-                if (frame_data.size() > max_payload) {
-                    std::cerr << "Warning: Frame too large (" << frame_data.size()
-                              << " > " << max_payload << "), truncating" << std::endl;
-                    frame_data.resize(max_payload);
-                }
+        };
+        return iface;
+    }
+
+    // Queue a host data frame for transmission, fragmenting or truncating to the payload size
+    void submit_frame(const std::vector<uint8_t>& data) {
+        size_t max_payload = payload_size_ - 2;
+        
+        if (config_.fragmentation_enabled && fragmenter_.needs_fragmentation(data.size(), max_payload)) {
+            auto fragments = fragmenter_.fragment(data, max_payload);
+            ui_log("TX: Fragmenting " + std::to_string(data.size()) + " bytes into " + 
+                   std::to_string(fragments.size()) + " fragments");
+            for (auto& frag : fragments) {
                 if (g_verbose) {
-                    std::cerr << packet_visualize(frame_data.data(), frame_data.size(), true, config_.fragmentation_enabled) << std::endl;
+                    std::cerr << packet_visualize(frag.data(), frag.size(), true, true) << std::endl;
                 }
-                tx_queue_.push(TxPacket(frame_data));
-#ifdef WITH_UI
-                if (g_ui_state) {
-                    g_ui_state->tx_queue_size = tx_queue_.size();
-                }
-#endif
+                tx_queue_.push(TxPacket(std::move(frag)));
             }
+#ifdef WITH_UI
+            if (g_ui_state) {
+                g_ui_state->tx_queue_size = tx_queue_.size();
+            }
+#endif
         } else {
-            std::lock_guard<std::mutex> lock(config_mutex_);
-            switch (cmd) {
-                // unused handled by modem73 config
-            case KISS::CMD_TXDELAY:
-                if (!data.empty()) {
-                    //
-                }
-                break;
-            case KISS::CMD_P:
-                if (!data.empty()) {
-                    // 
-                }
-                break;
-            case KISS::CMD_SLOTTIME:
-                if (!data.empty()) {
-                    //
-                }
-                break;
-            case KISS::CMD_TXTAIL:
-                if (!data.empty()) {
-                    //
-                }
-                break;
-            case KISS::CMD_FULLDUPLEX:
-                if (!data.empty()) {
-                    ui_log("KISS full duplex request ignored");
-                }
-                break;
-            case KISS::CMD_SETHW:
-                break;
-            case KISS::CMD_RETURN:
-                break;
-            default:
-                if (g_verbose) {
-                    std::cerr << "Unknown KISS command: 0x" << std::hex << (int)cmd << std::dec << std::endl;
-                }
+            std::vector<uint8_t> frame_data = data;
+            if (frame_data.size() > max_payload) {
+                std::cerr << "Warning: Frame too large (" << frame_data.size()
+                          << " > " << max_payload << "), truncating" << std::endl;
+                frame_data.resize(max_payload);
             }
+            if (g_verbose) {
+                std::cerr << packet_visualize(frame_data.data(), frame_data.size(), true, config_.fragmentation_enabled) << std::endl;
+            }
+            tx_queue_.push(TxPacket(frame_data));
+#ifdef WITH_UI
+            if (g_ui_state) {
+                g_ui_state->tx_queue_size = tx_queue_.size();
+            }
+#endif
         }
     }
     
@@ -1483,12 +1310,7 @@ private:
             if (rx_frame_callback)
                 rx_frame_callback(info);
 
-            auto kiss_frame = KISSParser::wrap(payload);
-
-            std::lock_guard<std::mutex> lock(clients_mutex_);
-            for (auto& client : clients_) {
-                client->send(kiss_frame);
-            }
+            kiss_server_.send_frame(payload);
         };
         
         auto ofdm_info = [this]() {
@@ -2096,10 +1918,7 @@ private:
 #endif
     std::unique_ptr<DummyPTT> dummy_ptt_;
     
-    static constexpr size_t MAX_CLIENTS = 16;
-    int server_fd_ = -1;
-    std::list<std::unique_ptr<ClientConnection>> clients_;
-    mutable std::mutex clients_mutex_;
+    KISSServer kiss_server_;
     
     PacketQueue<TxPacket> tx_queue_;
     std::atomic<bool> tx_running_{false};
@@ -2534,8 +2353,7 @@ public:
     }
 
     int get_client_count() const {
-        std::lock_guard<std::mutex> lock(clients_mutex_);
-        return clients_.size();
+        return kiss_server_.client_count();
     }
 
     bool ptt_failed() const {
