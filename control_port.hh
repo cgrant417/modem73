@@ -186,7 +186,7 @@ public:
         cJSON_Delete(event);
     }
 
-    // Push transmitter key up / frame done / key down to all connected clients
+    // Push transmitter keyed / frame done / unkeyed to all connected clients
     void notify_tx_event(const TxEvent& ev, size_t pending_bytes) {
         cJSON* event = cJSON_CreateObject();
         cJSON_AddStringToObject(event, "event", "tx_event");

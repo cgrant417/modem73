@@ -87,18 +87,18 @@ def check(cond, what):
 
 data = [m for m in ev if not m["beacon"]]
 types = [m["type"] for m in data]
-check(types and types[0] == "key_up" and types[-1] == "key_down", "starts with key_up, ends with key_down")
+check(types and types[0] == "keyed" and types[-1] == "unkeyed", "starts with keyed, ends with unkeyed")
 depth, nested_ok = 0, True
 for t in types:
-    if t == "key_up": nested_ok &= depth == 0; depth = 1
-    elif t == "key_down": nested_ok &= depth == 1; depth = 0
+    if t == "keyed": nested_ok &= depth == 0; depth = 1
+    elif t == "unkeyed": nested_ok &= depth == 1; depth = 0
     else: nested_ok &= depth == 1
-check(nested_ok, "every frame_done is inside a key_up/key_down pair, no nesting")
+check(nested_ok, "every frame_done is inside a keyed/unkeyed pair, no nesting")
 fd = [m for m in data if m["type"] == "frame_done"]
 check([m["bytes"] for m in fd] == SIZES and all(m["ok"] for m in fd), f"frame_done bytes {SIZES}, all ok")
 check([m["tx_pending_bytes"] for m in fd] == [sum(SIZES[i + 1:]) for i in range(len(SIZES))],
       "tx_pending_bytes after each frame_done = bytes still unsent")
-check(types.count("key_up") == 2, "CSMA burst 2: two key-ups for three frames")
+check(types.count("keyed") == 2, "CSMA burst 2: keyed twice for three frames")
 check(len(statuses) == 3 and statuses[0]["tx_frame_count"] == 0 and statuses[0]["tx_pending_bytes"] == 0,
       "status before: 0 frames, 0 pending")
 check(len(statuses) == 3 and statuses[1]["tx_pending_bytes"] == sum(SIZES), "status mid-flight: all bytes pending")

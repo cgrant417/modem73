@@ -175,15 +175,15 @@ The control port broadcasts  events to all connected clients:
 |---|---|
 | `config_changed` | Any configuration change  |
 | `rx_frame` | A frame was decoded and delivered to KISS clients |
-| `tx_event` | The transmitter keyed up, finished a frame, or keyed down |
+| `tx_event` | The transmitter was keyed, finished a frame, or was unkeyed |
 
 ### `tx_event`
 
-A transmission is one `key_up`, a `frame_done` for each frame sent in that key-up (several when CSMA bursting), then `key_down`. Presence tones and ALC tuning key up and down without `frame_done`. `key_up` is sent just before PTT is keyed; `key_down` after the tail, once PTT is released. `frame_done` for the last frame of a transmission follows the end of playback; for earlier frames it is sent once the frame's audio has been queued to the sound device, slightly before it finishes playing.
+A transmission is one `keyed`, a `frame_done` for each frame sent before the transmitter is released (several when CSMA bursting), then `unkeyed`. Presence tones and ALC tuning are reported as `keyed` and `unkeyed` without `frame_done`. `keyed` is sent just before PTT is keyed; `unkeyed` after the tail, once PTT is released. `frame_done` for the last frame of a transmission follows the end of playback; for earlier frames it is sent once the frame's audio has been queued to the sound device, slightly before it finishes playing.
 
 | Field | Type | Description |
 |---|---|---|
-| `type` | string | `"key_up"`, `"frame_done"` or `"key_down"` |
+| `type` | string | `"keyed"`, `"frame_done"` or `"unkeyed"` |
 | `bytes` | int | `frame_done` only. Payload bytes in the frame |
 | `ok` | bool | `frame_done` only. `false` if the frame was dropped (too large for the mode, or encoding failed) |
 | `beacon` | bool | Presence tone rather than data |

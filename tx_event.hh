@@ -4,10 +4,10 @@
 #include <cstdint>
 
 // Transmitter activity, reported through KISSTNC::tx_event_callback on the TX thread.
-// A burst is KEY_UP, one FRAME_DONE per frame, then KEY_DOWN.
+// A transmission is KEYED, one FRAME_DONE per frame, then UNKEYED.
 struct TxEvent {
-    enum class Type { KEY_UP, FRAME_DONE, KEY_DOWN };
-    Type type = Type::KEY_UP;
+    enum class Type { KEYED, FRAME_DONE, UNKEYED };
+    Type type = Type::KEYED;
     size_t bytes = 0;      // FRAME_DONE: payload bytes in the frame
     bool ok = true;        // FRAME_DONE: false if the frame was dropped (too large or encode failed)
     bool beacon = false;   // presence tone rather than a data frame
@@ -16,9 +16,9 @@ struct TxEvent {
 
 inline const char* tx_event_name(TxEvent::Type t) {
     switch (t) {
-    case TxEvent::Type::KEY_UP: return "key_up";
+    case TxEvent::Type::KEYED: return "keyed";
     case TxEvent::Type::FRAME_DONE: return "frame_done";
-    case TxEvent::Type::KEY_DOWN: return "key_down";
+    case TxEvent::Type::UNKEYED: return "unkeyed";
     }
     return "?";
 }

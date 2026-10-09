@@ -1242,12 +1242,12 @@ private:
 
     void begin_tx_burst(bool beacon) {
         tx_keyed_ = true;
-        emit_tx_event(TxEvent::Type::KEY_UP, 0, true, beacon);
+        emit_tx_event(TxEvent::Type::KEYED, 0, true, beacon);
     }
 
     void end_tx_burst(bool beacon) {
         if (tx_keyed_.exchange(false))
-            emit_tx_event(TxEvent::Type::KEY_DOWN, 0, true, beacon);
+            emit_tx_event(TxEvent::Type::UNKEYED, 0, true, beacon);
     }
 
     // Account for a frame leaving the TX loop; ends the burst after its last frame
@@ -1964,7 +1964,7 @@ private:
     
     PacketQueue<TxPacket> tx_queue_;
     std::atomic<size_t> tx_inflight_bytes_{0};  // popped by the TX loop, not yet sent
-    std::atomic<bool> tx_keyed_{false};          // between KEY_UP and KEY_DOWN events
+    std::atomic<bool> tx_keyed_{false};          // between KEYED and UNKEYED events
     std::atomic<uint64_t> tx_frame_count_{0};
     std::atomic<bool> tx_running_{false};
     std::atomic<int> mfsk_soft_errors_{0};
