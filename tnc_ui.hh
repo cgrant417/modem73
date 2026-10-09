@@ -159,6 +159,7 @@ private:
 #endif
 #ifdef WITH_CM108
         FIELD_CM108_GPIO,
+        FIELD_CM108_INVERT,
         FIELD_CM108_DEVICE,
 #endif
         FIELD_TX_DELAY,
@@ -1098,7 +1099,7 @@ private:
         if (field == FIELD_HAMLIB_INFO && !hamlib_info_field()) return true;
 #ifdef WITH_CM108
         if (state_.ptt_type_index != 4) {  // not CM108
-            if (field == FIELD_CM108_GPIO || field == FIELD_CM108_DEVICE) {
+            if (field == FIELD_CM108_GPIO || field == FIELD_CM108_INVERT || field == FIELD_CM108_DEVICE) {
                 return true;
             }
         }
@@ -1262,6 +1263,8 @@ private:
 #ifdef WITH_CM108
         if (state_.ptt_type_index == 4) {
             if (field == FIELD_CM108_GPIO) return row;
+            row++;
+            if (field == FIELD_CM108_INVERT) return row;
             row++;
             if (field == FIELD_CM108_DEVICE) return row;
             row++;
@@ -1506,6 +1509,12 @@ private:
                 break;
             case FIELD_GPIO_INVERT:
                 state_.gpio_active_low = !state_.gpio_active_low;
+                break;
+#endif
+#ifdef WITH_CM108
+            case FIELD_CM108_INVERT:
+                state_.cm108_active_low = !state_.cm108_active_low;
+                state_.add_log("(!) CM108 polarity changed, restart required");
                 break;
 #endif
             case FIELD_COM_LINE:
@@ -3659,6 +3668,11 @@ private:
                 snprintf(cm108_gpio_buf, sizeof(cm108_gpio_buf), "%d", state_.cm108_gpio);
                 draw_field(dy, c1, c2, "GPIO Pin", FIELD_CM108_GPIO, cm108_gpio_buf, true);
             }
+            row++;
+
+            dy = visible_y(row);
+            if (dy >= 0) draw_selector_field(dy, c1, c2, "Polarity", FIELD_CM108_INVERT,
+                                             state_.cm108_active_low ? "ACTIVE LOW" : "ACTIVE HIGH");
             row++;
 
             dy = visible_y(row);

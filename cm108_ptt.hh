@@ -76,10 +76,11 @@ public:
     }
     
 
-    bool open(const int gpio, const std::string& selector = ""){
+    bool open(const int gpio, const std::string& selector = "", bool active_low = false){
 
 
         gpio_ = gpio;
+        active_low_ = active_low;
         auto devices = enumerate();
         if (devices.empty()) {
             std::cerr << "No CM108-compatible PTT device found" << std::endl;
@@ -124,8 +125,9 @@ public:
         buf[0] = 0x00;
         buf[1] = 0x00;
 
+        // buf[2] = GPIO data, buf[3] = GPIO direction (1 = output)
         if (on){
-            buf[2] = cm108_on_[gpio_-1];
+            buf[2] = active_low_ ? 0x00 : cm108_on_[gpio_-1];  // active-low keys by driving the pin low
             buf[3] = cm108_on_[gpio_-1];
         } else {
             buf[2] = 0x00;
@@ -149,6 +151,7 @@ private:
 
     int res_ = 0;
     int gpio_ = 3;  // PTT control pin GPIOX, where X should be 1,2,3,4 - GPIO3 on most devices
+    bool active_low_ = false;
     const int cm108_on_[4] = {0x01, 0x02, 0x04, 0x08};
     hid_device *handle_ = nullptr;
 };

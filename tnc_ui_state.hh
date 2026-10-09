@@ -253,6 +253,7 @@ struct TNCUIState {
 #ifdef WITH_CM108
     // CM108 PTT settings (PTT type 4)
     int cm108_gpio = 3;  // GPIO pin to use for PTT, default 3
+    bool cm108_active_low = false;  // key PTT by driving the pin low
     std::string cm108_device;  // empty = first compatible device, else serial or USB path
 #endif
 
@@ -785,6 +786,7 @@ struct TNCUIState {
 #ifdef WITH_CM108
         fprintf(f, "# CM108 PTT\n");
         fprintf(f, "cm108_gpio=%d\n", cm108_gpio);
+        fprintf(f, "cm108_active_low=%d\n", cm108_active_low ? 1 : 0);
         fprintf(f, "cm108_device=%s\n", cm108_device.c_str());
 #endif
         fprintf(f, "# Network\n");
@@ -930,6 +932,7 @@ struct TNCUIState {
                     int v = atoi(value);
                     if (v >= 1 && v <= 4) cm108_gpio = v;
                 }
+                else if (strcmp(key, "cm108_active_low") == 0) cm108_active_low = atoi(value) != 0;
                 else if (strcmp(key, "cm108_device") == 0) cm108_device = value;
 #endif
                 else if (strcmp(key, "port") == 0) {

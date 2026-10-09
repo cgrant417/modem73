@@ -335,7 +335,7 @@ public:
 #ifdef WITH_CM108
         } else if (config_.ptt_type == PTTType::CM108) {
             cm108_ptt_ = std::make_unique<CM108PTT>();
-            if (!cm108_ptt_->open(config_.cm108_gpio, config_.cm108_device)) {
+            if (!cm108_ptt_->open(config_.cm108_gpio, config_.cm108_device, config_.cm108_active_low)) {
                 std::cerr << "Could not open CM108 PTT device" << std::endl;
                 ui_log("(!) CM108 PTT: device open failed");
                 ui_log("(!) PTT will not key the radio - check CM108 in settings");
@@ -459,7 +459,8 @@ public:
                 break;
             case PTTType::CM108:
 #ifdef WITH_CM108
-                std::cerr << "PTT: CM108 (GPIO" << config_.cm108_gpio << ")" << std::endl;
+                std::cerr << "PTT: CM108 (GPIO" << config_.cm108_gpio
+                          << (config_.cm108_active_low ? ", active-low" : "") << ")" << std::endl;
 #else
                 std::cerr << "PTT: CM108 not available in this build" << std::endl;
 #endif

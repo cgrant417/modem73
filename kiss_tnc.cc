@@ -136,6 +136,7 @@ static bool apply_settings_file(const std::string& path, TNCConfig& config,
         else if (!strcmp(key, "gpio_active_low") && take(key)) config.gpio_active_low = atoi(value) != 0;
 #ifdef WITH_CM108
         else if (!strcmp(key, "cm108_gpio") && take(key)) config.cm108_gpio = atoi(value);
+        else if (!strcmp(key, "cm108_active_low") && take(key)) config.cm108_active_low = atoi(value) != 0;
         else if (!strcmp(key, "cm108_device") && take(key)) config.cm108_device = value;
 #endif
         else if (!strcmp(key, "port") && take(key)) {
@@ -283,6 +284,7 @@ void print_help(const char* prog) {
               << "      --vox-tail MS       VOX tail time in ms (default: 500)\n"
 #ifdef WITH_CM108
               << "      --cm108-gpio N      CM108 GPIO pin for PTT (default: 3)\n"
+              << "      --cm108-active-low  Drive the CM108 GPIO pin low to key PTT\n"
               << "      --cm108-device SPEC CM108 device to use: serial or USB path\n"
               << "                          (default: first compatible device)\n"
 #endif
@@ -596,6 +598,9 @@ int main(int argc, char** argv) {
         } else if (arg == "--cm108-gpio" && i + 1 < argc) {
             config.cm108_gpio = std::atoi(argv[++i]);
             cli_set.insert("cm108_gpio");
+        } else if (arg == "--cm108-active-low") {
+            config.cm108_active_low = true;
+            cli_set.insert("cm108_active_low");
         } else if (arg == "--cm108-device" && i + 1 < argc) {
             config.cm108_device = argv[++i];
             cli_set.insert("cm108_device");
@@ -926,6 +931,9 @@ int main(int argc, char** argv) {
                 if (!cli_set.count("cm108_gpio"))
                     config.cm108_gpio = ui_state.cm108_gpio;
 
+                if (!cli_set.count("cm108_active_low"))
+                    config.cm108_active_low = ui_state.cm108_active_low;
+
                 if (!cli_set.count("cm108_device"))
                     config.cm108_device = ui_state.cm108_device;
                 
@@ -1009,6 +1017,7 @@ int main(int argc, char** argv) {
 #ifdef WITH_CM108
                 // CM108 PTT settings
                 ui_state.cm108_gpio = config.cm108_gpio;
+                ui_state.cm108_active_low = config.cm108_active_low;
                 ui_state.cm108_device = config.cm108_device;
 #endif
                 // Network settings
@@ -1071,6 +1080,7 @@ int main(int argc, char** argv) {
         ui_state.gpio_active_low = config.gpio_active_low;
 #ifdef WITH_CM108
         ui_state.cm108_gpio = config.cm108_gpio;
+        ui_state.cm108_active_low = config.cm108_active_low;
         ui_state.cm108_device = config.cm108_device;
 #endif
         ui_state.port = config.port;

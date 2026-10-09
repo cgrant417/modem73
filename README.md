@@ -219,6 +219,9 @@ while running `rigctld`
 ```
 # CM108 USB audio interface PTT (GPIO3 is the default)
 ./modem73 --ptt cm108 --cm108-gpio 3
+
+# Interfaces whose PTT circuit keys when the GPIO pin is pulled low
+./modem73 --ptt cm108 --cm108-gpio 3 --cm108-active-low
 ```
 
 ### Control port

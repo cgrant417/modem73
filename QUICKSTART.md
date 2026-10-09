@@ -148,6 +148,8 @@ CM108 keying works the same as it does everywhere else:
 modem73.exe --ptt cm108 --cm108-gpio 3
 ```
 
+If your interface keys when the GPIO pin is pulled low, add `--cm108-active-low`.
+
 ### TEST YOUR SETUP
 
 Restart modem73 after changing audio or PTT settings.
