@@ -190,6 +190,9 @@ struct TNCUIState {
     int control_port = 8073;
     std::string bind_address = "0.0.0.0";
     std::string control_bind_address = "127.0.0.1";
+    int host_interface = 0;  // 0=KISS, 1=VARA; fixed at startup
+    int vara_port = 8300;
+    std::string vara_bind_address = "127.0.0.1";
 
     // PTT 
     int ptt_type_index = 0;  // 0=NONE, 1=RIGCTL, 2=VOX
@@ -794,6 +797,9 @@ struct TNCUIState {
         fprintf(f, "control_port=%d\n", control_port);
         fprintf(f, "bind_address=%s\n", bind_address.c_str());
         fprintf(f, "control_bind_address=%s\n", control_bind_address.c_str());
+        fprintf(f, "host_interface=%d\n", host_interface);
+        fprintf(f, "vara_port=%d\n", vara_port);
+        fprintf(f, "vara_bind_address=%s\n", vara_bind_address.c_str());
         fprintf(f, "# Utils\n");
         fprintf(f, "random_data_size=%d\n", random_data_size);
         fprintf(f, "utils_testing=%d\n", utils_testing_open ? 1 : 0);
@@ -945,6 +951,15 @@ struct TNCUIState {
                 }
                 else if (strcmp(key, "bind_address") == 0) bind_address = value;
                 else if (strcmp(key, "control_bind_address") == 0) control_bind_address = value;
+                else if (strcmp(key, "host_interface") == 0) {
+                    int v = atoi(value);
+                    if (v >= 0 && v <= 1) host_interface = v;
+                }
+                else if (strcmp(key, "vara_port") == 0) {
+                    int v = atoi(value);
+                    if (v >= 1 && v <= 65534) vara_port = v;
+                }
+                else if (strcmp(key, "vara_bind_address") == 0) vara_bind_address = value;
                 else if (strcmp(key, "random_data_size") == 0) {
                     int v = atoi(value);
                     if (v >= 0 && v <= 65535) random_data_size = v;

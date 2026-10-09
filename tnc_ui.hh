@@ -3975,7 +3975,10 @@ private:
         attroff(COLOR_PAIR(4) | A_BOLD);
         y++;
         
-        mvprintw(y, c3, "Port: %d", state_.port);
+        if (state_.host_interface == 1)
+            mvprintw(y, c3, "VARA: %d", state_.vara_port);
+        else
+            mvprintw(y, c3, "KISS: %d", state_.port);
         printw("  ");
         attron(COLOR_PAIR(4));
         printw("%dc", state_.client_count.load());

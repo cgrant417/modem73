@@ -75,6 +75,16 @@ const std::vector<std::string> PTT_LINE_OPTIONS = {
     "DTR", "RTS", "BOTH"
 };
 
+// Host-facing interface; exactly one runs, chosen at startup
+enum class HostInterface {
+    KISS = 0,
+    VARA = 1
+};
+
+const std::vector<std::string> HOST_INTERFACE_OPTIONS = {
+    "kiss", "vara"
+};
+
 
 
 struct TNCConfig {
@@ -82,6 +92,9 @@ struct TNCConfig {
     std::string bind_address = "0.0.0.0";
     std::string control_bind_address = "127.0.0.1";
     int port = 8001;
+    HostInterface host_interface = HostInterface::KISS;
+    int vara_port = 8300;                          // VARA command port; data port is vara_port + 1
+    std::string vara_bind_address = "127.0.0.1";
     
     // Audio settings
     std::string audio_input_device = "default";

@@ -54,6 +54,7 @@
 #include "perf_log.hh"
 #include "control_port.hh"
 #include "kiss_server.hh"
+#include "vara_server.hh"
 #include "tx_event.hh"
 
 #ifdef WITH_UI
@@ -168,7 +169,8 @@ public:
     std::function<bool(bool on)> external_ptt;
     std::function<void(const float* samples, int n)> rx_tap;
 
-    KISSTNC(const TNCConfig& config) : config_(config), kiss_server_(make_kiss_iface(), g_verbose) {
+    KISSTNC(const TNCConfig& config)
+        : config_(config), kiss_server_(make_kiss_iface(), g_verbose), vara_server_(make_vara_iface()) {
         // Allocate OFDM encoder/decoder
         std::cerr << "  Creating OFDM encoder/decoder" << std::endl;
         encoder_ = std::make_unique<Encoder48k>();
@@ -331,7 +333,10 @@ public:
         }
 #endif
         
-        kiss_server_.open(config_.bind_address, config_.port);
+        if (config_.host_interface == HostInterface::VARA)
+            vara_server_.open(config_.vara_bind_address, config_.vara_port);
+        else
+            kiss_server_.open(config_.bind_address, config_.port);
 
         std::cerr << "Callsign: " << config_.callsign << std::endl;
         if (config_.modem_type == 1) {
@@ -416,7 +421,10 @@ public:
 
         // Main
         while (g_running) {
-            kiss_server_.poll();
+            if (config_.host_interface == HostInterface::VARA)
+                vara_server_.poll();
+            else
+                kiss_server_.poll();
 
             int64_t audio_now_ms = steady_now_ms();
             if (audio_now_ms - last_audio_check_ms >= 1000) {
@@ -451,9 +459,27 @@ public:
         set_ptt(false);
 
         kiss_server_.close_all();
+        vara_server_.close_all();
     }
     
 private:
+    static void set_ui_client_count(size_t n) {
+#ifdef WITH_UI
+        if (g_ui_state) {
+            g_ui_state->client_count = n;
+        }
+#else
+        (void)n;
+#endif
+    }
+
+    VARAServer::TNCInterface make_vara_iface() {
+        VARAServer::TNCInterface iface;
+        iface.log = [](const std::string& msg) { ui_log(msg); };
+        iface.client_count_changed = set_ui_client_count;
+        return iface;
+    }
+
     KISSServer::TNCInterface make_kiss_iface() {
         KISSServer::TNCInterface iface;
         iface.submit_frame = [this](const std::vector<uint8_t>& data) { submit_frame(data); };
@@ -1352,7 +1378,8 @@ private:
             if (rx_frame_callback)
                 rx_frame_callback(info);
 
-            kiss_server_.send_frame(payload);
+            if (config_.host_interface == HostInterface::KISS)
+                kiss_server_.send_frame(payload);
         };
         
         auto ofdm_info = [this]() {
@@ -1961,6 +1988,7 @@ private:
     std::unique_ptr<DummyPTT> dummy_ptt_;
     
     KISSServer kiss_server_;
+    VARAServer vara_server_;
     
     PacketQueue<TxPacket> tx_queue_;
     std::atomic<size_t> tx_inflight_bytes_{0};  // popped by the TX loop, not yet sent
@@ -2405,6 +2433,8 @@ public:
     }
 
     int get_client_count() const {
+        if (config_.host_interface == HostInterface::VARA)
+            return vara_server_.client_count();
         return kiss_server_.client_count();
     }
 

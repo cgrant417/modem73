@@ -40,7 +40,8 @@ Wire format: 4-byte big-endian length prefix + JSON payload.
 | `last_snr` | float | Last decoded frame SNR (dB) |
 | `last_ber` | float | Last decoded frame BER (0.0-1.0, -1 if unavailable) |
 | `ber_ema` | float | Exponential moving average BER |
-| `client_count` | int | Connected KISS clients |
+| `host_interface` | string | `"kiss"` or `"vara"`; the host interface chosen at startup with `--host` |
+| `client_count` | int | Connected KISS clients, or `1`/`0` for whether a VARA host is on the command port |
 | `rigctl_connected` | bool | rigctld connection status |
 | `audio_connected` | bool | Audio device health |
 | `population` | int | Stations heard on frequency counted from signature tone IDs decoded within the 300s list expiry |

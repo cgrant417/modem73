@@ -145,6 +145,15 @@ static bool apply_settings_file(const std::string& path, TNCConfig& config,
         }
         else if (!strcmp(key, "bind_address") && take(key)) config.bind_address = value;
         else if (!strcmp(key, "control_bind_address") && take(key)) config.control_bind_address = value;
+        else if (!strcmp(key, "host_interface") && take(key)) {
+            int v = atoi(value);
+            if (v >= 0 && v < (int)HOST_INTERFACE_OPTIONS.size()) config.host_interface = static_cast<HostInterface>(v);
+        }
+        else if (!strcmp(key, "vara_port") && take(key)) {
+            int v = atoi(value);
+            if (v >= 1 && v <= 65534) config.vara_port = v;
+        }
+        else if (!strcmp(key, "vara_bind_address") && take(key)) config.vara_bind_address = value;
     }
 
     fclose(f);
@@ -211,8 +220,11 @@ void print_help(const char* prog) {
 #endif
               << "      --help              Show this help\n"
               << "\nNetwork:\n"
+              << "      --host IFACE        Host interface: kiss or vara (default: kiss)\n"
               << "  -p, --port PORT         KISS TCP port (default: 8001)\n"
               << "      --bind ADDR         KISS bind address (default: 0.0.0.0)\n"
+              << "      --vara-port PORT    VARA command port; data port is PORT+1 (default: 8300)\n"
+              << "      --vara-bind ADDR    VARA bind address (default: 127.0.0.1)\n"
               << "      --control-port PORT Control port (default: 8073, 0 to disable)\n"
               << "      --control-bind ADDR Control port bind address (default: 127.0.0.1)\n"
               << "\nAudio:\n"
@@ -380,6 +392,22 @@ int main(int argc, char** argv) {
         } else if (arg == "--bind" && i + 1 < argc) {
             config.bind_address = argv[++i];
             cli_set.insert("bind_address");
+        } else if (arg == "--host" && i + 1 < argc) {
+            std::string value = argv[++i];
+            auto it = std::find_if(HOST_INTERFACE_OPTIONS.begin(), HOST_INTERFACE_OPTIONS.end(),
+                                   [&](const std::string& o) { return arg_ieq(value, o.c_str()); });
+            if (it == HOST_INTERFACE_OPTIONS.end()) {
+                std::cerr << "Invalid --host '" << value << "', expected one of: kiss vara" << std::endl;
+                return 1;
+            }
+            config.host_interface = static_cast<HostInterface>(it - HOST_INTERFACE_OPTIONS.begin());
+            cli_set.insert("host_interface");
+        } else if (arg == "--vara-port" && i + 1 < argc) {
+            config.vara_port = std::min(65534, std::max(1, std::atoi(argv[++i])));
+            cli_set.insert("vara_port");
+        } else if (arg == "--vara-bind" && i + 1 < argc) {
+            config.vara_bind_address = argv[++i];
+            cli_set.insert("vara_bind_address");
         } else if (arg == "--control-bind" && i + 1 < argc) {
             config.control_bind_address = argv[++i];
             cli_set.insert("control_bind_address");
@@ -948,6 +976,12 @@ int main(int argc, char** argv) {
                     config.bind_address = ui_state.bind_address;
                 if (!cli_set.count("control_bind_address"))
                     config.control_bind_address = ui_state.control_bind_address;
+                if (!cli_set.count("host_interface"))
+                    config.host_interface = static_cast<HostInterface>(ui_state.host_interface);
+                if (!cli_set.count("vara_port"))
+                    config.vara_port = ui_state.vara_port;
+                if (!cli_set.count("vara_bind_address"))
+                    config.vara_bind_address = ui_state.vara_bind_address;
 
                 // Find audio device indices
                 for (size_t i = 0; i < ui_state.available_input_devices.size(); i++) {
@@ -1025,6 +1059,9 @@ int main(int argc, char** argv) {
                 ui_state.control_port = config.control_port;
                 ui_state.bind_address = config.bind_address;
                 ui_state.control_bind_address = config.control_bind_address;
+                ui_state.host_interface = static_cast<int>(config.host_interface);
+                ui_state.vara_port = config.vara_port;
+                ui_state.vara_bind_address = config.vara_bind_address;
 
                 // Find modulation index
                 for (size_t i = 0; i < MODULATION_OPTIONS.size(); ++i) {
@@ -1087,6 +1124,9 @@ int main(int argc, char** argv) {
         ui_state.control_port = config.control_port;
         ui_state.bind_address = config.bind_address;
         ui_state.control_bind_address = config.control_bind_address;
+        ui_state.host_interface = static_cast<int>(config.host_interface);
+        ui_state.vara_port = config.vara_port;
+        ui_state.vara_bind_address = config.vara_bind_address;
         for (size_t i = 0; i < MODULATION_OPTIONS.size(); ++i) {
             if (MODULATION_OPTIONS[i] == config.modulation) {
                 ui_state.modulation_index = i;
@@ -1153,7 +1193,22 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    while (!check_port_available(config.bind_address, config.port)) {
+    if (config.host_interface == HostInterface::VARA) {
+        if (!valid_bind_address(config.vara_bind_address)) {
+            std::cerr << "Error: invalid VARA bind address '" << config.vara_bind_address << "'" << std::endl;
+            return 1;
+        }
+        for (int p : {config.vara_port, config.vara_port + 1}) {
+            if (!check_port_available(config.vara_bind_address, p)) {
+                std::cerr << "Error: VARA port " << p << " is already in use or cannot be bound" << std::endl;
+                std::cerr << "Use --vara-port to choose a different command port (data uses the next port)." << std::endl;
+                return 1;
+            }
+        }
+    }
+
+    while (config.host_interface == HostInterface::KISS &&
+           !check_port_available(config.bind_address, config.port)) {
         std::cerr << "Error: Port " << config.port << " is already in use or cannot be bound" << std::endl;
         std::cerr << "Another instance of modem73 may be running, or another application is using this port." << std::endl;
         
@@ -1269,6 +1324,8 @@ int main(int argc, char** argv) {
                 cJSON_AddNumberToObject(j, "last_snr", stats.last_snr);
                 cJSON_AddNumberToObject(j, "last_ber", stats.last_ber);
                 cJSON_AddNumberToObject(j, "ber_ema", stats.ber_ema);
+                cJSON_AddStringToObject(j, "host_interface",
+                    HOST_INTERFACE_OPTIONS[static_cast<int>(tnc.get_config().host_interface)].c_str());
                 cJSON_AddNumberToObject(j, "client_count", tnc.get_client_count());
                 cJSON_AddBoolToObject(j, "rigctl_connected", tnc.is_rigctl_connected());
                 cJSON_AddBoolToObject(j, "audio_connected", tnc.is_audio_healthy());
