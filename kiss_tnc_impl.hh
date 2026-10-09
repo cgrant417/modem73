@@ -54,6 +54,7 @@
 #include "perf_log.hh"
 #include "control_port.hh"
 #include "kiss_server.hh"
+#include "tx_event.hh"
 
 #ifdef WITH_UI
 #include "tnc_ui_state.hh"
@@ -163,6 +164,7 @@ class KISSTNC {
 public:
     PerfLogger perf_log_;
     std::function<void(const RxFrameInfo&)> rx_frame_callback;
+    std::function<void(const TxEvent&)> tx_event_callback;  // called on the TX thread
     std::function<bool(bool on)> external_ptt;
     std::function<void(const float* samples, int n)> rx_tap;
 
@@ -536,6 +538,7 @@ private:
         while (tx_running_ && g_running) {
             TxPacket pkt;
             if (tx_queue_.pop(pkt)) {
+                tx_inflight_bytes_ += pkt.data.size();
 #ifdef WITH_UI
                 if (g_ui_state) {
                     g_ui_state->tx_queue_size = tx_queue_.size();
@@ -826,6 +829,8 @@ private:
                 while (true) {
                     TxPacket next;
                     bool have_next = remaining > 0 && tx_queue_.pop(next);
+                    if (have_next)
+                        tx_inflight_bytes_ += next.data.size();
 #ifdef WITH_UI
                     if (g_ui_state) {
                         g_ui_state->tx_queue_size = tx_queue_.size();
@@ -1046,6 +1051,7 @@ private:
                 if (g_ui_state) g_ui_state->transmitting = false;
 #endif
             }
+            finish_tx_frame(data.size(), false, beacon, last);
             return false;
         }
         
@@ -1055,6 +1061,9 @@ private:
         int64_t overhead_ms = tx_lead_ms() + config_.ptt_tail_ms +
                               config_.vox_lead_ms + config_.vox_tail_ms + BURST_GAP_MS;
         arm_ptt_watchdog((int64_t)(duration * 1000.0f) + overhead_ms);
+
+        if (first)
+            begin_tx_burst(beacon);
 
         // Handle PTT based on type
         if (config_.ptt_type == PTTType::VOX) {
@@ -1216,7 +1225,40 @@ private:
             g_ui_state->total_tx_time = g_ui_state->total_tx_time.load() + total_tx_duration;
         }
 #endif
+        finish_tx_frame(data.size(), true, beacon, last);
         return true;
+    }
+
+    void emit_tx_event(TxEvent::Type type, size_t bytes = 0, bool ok = true, bool beacon = false) {
+        if (!tx_event_callback) return;
+        TxEvent ev;
+        ev.type = type;
+        ev.bytes = bytes;
+        ev.ok = ok;
+        ev.beacon = beacon;
+        ev.steady_ms = steady_now_ms();
+        tx_event_callback(ev);
+    }
+
+    void begin_tx_burst(bool beacon) {
+        tx_keyed_ = true;
+        emit_tx_event(TxEvent::Type::KEY_UP, 0, true, beacon);
+    }
+
+    void end_tx_burst(bool beacon) {
+        if (tx_keyed_.exchange(false))
+            emit_tx_event(TxEvent::Type::KEY_DOWN, 0, true, beacon);
+    }
+
+    // Account for a frame leaving the TX loop; ends the burst after its last frame
+    void finish_tx_frame(size_t bytes, bool ok, bool beacon, bool last) {
+        tx_inflight_bytes_ -= std::min(bytes, tx_inflight_bytes_.load());
+        if (!beacon) {
+            if (ok) tx_frame_count_++;
+            emit_tx_event(TxEvent::Type::FRAME_DONE, bytes, ok, beacon);
+        }
+        if (last)
+            end_tx_burst(beacon);
     }
 
     // Generate a sine wave tone for VOX triggering
@@ -1921,6 +1963,9 @@ private:
     KISSServer kiss_server_;
     
     PacketQueue<TxPacket> tx_queue_;
+    std::atomic<size_t> tx_inflight_bytes_{0};  // popped by the TX loop, not yet sent
+    std::atomic<bool> tx_keyed_{false};          // between KEY_UP and KEY_DOWN events
+    std::atomic<uint64_t> tx_frame_count_{0};
     std::atomic<bool> tx_running_{false};
     std::atomic<int> mfsk_soft_errors_{0};
     std::atomic<bool> rx_running_{false};
@@ -2075,6 +2120,7 @@ public:
         float result = -1.0f;
         tx_on_air_ = true;
         tx_blanking_active_ = true;
+        begin_tx_burst(false);
         set_ptt(true);
         arm_ptt_watchdog(2000);
         float drive = 0.10f;
@@ -2139,6 +2185,7 @@ public:
         set_ptt(false);
         tx_on_air_ = false;
         tx_blanking_active_ = false;
+        end_tx_burst(false);
         if (result > 0) {
             std::lock_guard<std::mutex> lock(config_mutex_);
             config_.tx_drive = result;
@@ -2323,6 +2370,11 @@ public:
     }
 
     size_t tx_queue_depth() const { return tx_queue_.size(); }
+
+    // Payload bytes not yet on air: queued plus taken by the TX loop for the current burst
+    size_t tx_pending_bytes() const { return tx_queue_.bytes() + tx_inflight_bytes_.load(); }
+
+    uint64_t tx_frame_count() const { return tx_frame_count_.load(); }
 
     int channel_population() { return known_others(); }
 

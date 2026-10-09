@@ -29,7 +29,9 @@ Wire format: 4-byte big-endian length prefix + JSON payload.
 | `channel_state` | string | `"idle"`, `"tx"`, or `"rx"` |
 | `ptt_on` | bool | PTT currently keyed |
 | `rx_frame_count` | int | Successfully decoded frames |
-| `tx_frame_count` | int | Transmitted frames |
+| `tx_frame_count` | int | Data frames transmitted since startup (presence tones not counted) |
+| `tx_queue` | int | Frames waiting in the TX queue |
+| `tx_pending_bytes` | int | Payload bytes not yet on air: queued frames plus frames taken for the current burst |
 | `rx_error_count` | int | Preamble + CRC errors |
 | `sync_count` | int | Preamble sync detections |
 | `preamble_errors` | int | Sync found but preamble decode failed |
@@ -173,6 +175,19 @@ The control port broadcasts  events to all connected clients:
 |---|---|
 | `config_changed` | Any configuration change  |
 | `rx_frame` | A frame was decoded and delivered to KISS clients |
+| `tx_event` | The transmitter keyed up, finished a frame, or keyed down |
+
+### `tx_event`
+
+A transmission is one `key_up`, a `frame_done` for each frame sent in that key-up (several when CSMA bursting), then `key_down`. Presence tones and ALC tuning key up and down without `frame_done`. `key_up` is sent just before PTT is keyed; `key_down` after the tail, once PTT is released. `frame_done` for the last frame of a transmission follows the end of playback; for earlier frames it is sent once the frame's audio has been queued to the sound device, slightly before it finishes playing.
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | `"key_up"`, `"frame_done"` or `"key_down"` |
+| `bytes` | int | `frame_done` only. Payload bytes in the frame |
+| `ok` | bool | `frame_done` only. `false` if the frame was dropped (too large for the mode, or encoding failed) |
+| `beacon` | bool | Presence tone rather than data |
+| `tx_pending_bytes` | int | Same as in `get_status`, at the time of the event |
 
 ### `rx_frame`
 

@@ -27,6 +27,7 @@ extern "C" {
 }
 
 #include "rx_frame_info.hh"
+#include "tx_event.hh"
 
 inline void add_rx_frame_fields(cJSON* j, const RxFrameInfo& f) {
     cJSON_AddNumberToObject(j, "seq", (double)f.seq);
@@ -181,6 +182,21 @@ public:
         cJSON* event = cJSON_CreateObject();
         cJSON_AddStringToObject(event, "event", "rx_frame");
         add_rx_frame_fields(event, info);
+        broadcast_event(event);
+        cJSON_Delete(event);
+    }
+
+    // Push transmitter key up / frame done / key down to all connected clients
+    void notify_tx_event(const TxEvent& ev, size_t pending_bytes) {
+        cJSON* event = cJSON_CreateObject();
+        cJSON_AddStringToObject(event, "event", "tx_event");
+        cJSON_AddStringToObject(event, "type", tx_event_name(ev.type));
+        if (ev.type == TxEvent::Type::FRAME_DONE) {
+            cJSON_AddNumberToObject(event, "bytes", (double)ev.bytes);
+            cJSON_AddBoolToObject(event, "ok", ev.ok);
+        }
+        cJSON_AddBoolToObject(event, "beacon", ev.beacon);
+        cJSON_AddNumberToObject(event, "tx_pending_bytes", (double)pending_bytes);
         broadcast_event(event);
         cJSON_Delete(event);
     }

@@ -268,6 +268,7 @@ public:
             std::cerr << "TX queue full (256), dropping frame" << std::endl;
             return;
         }
+        bytes_ += queue_item_bytes(item);
         queue_.push(std::move(item));
     }
     
@@ -276,6 +277,7 @@ public:
         if (queue_.empty()) return false;
         item = std::move(queue_.front());
         queue_.pop();
+        bytes_ -= queue_item_bytes(item);
         return true;
     }
     
@@ -289,14 +291,22 @@ public:
         return queue_.size();
     }
     
+    // Total payload bytes queued
+    size_t bytes() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return bytes_;
+    }
+    
     void clear() {
         std::lock_guard<std::mutex> lock(mutex_);
         while (!queue_.empty()) queue_.pop();
+        bytes_ = 0;
     }
     
 private:
     mutable std::mutex mutex_;
     std::queue<T> queue_;
+    size_t bytes_ = 0;
 };
 
 
@@ -477,6 +487,8 @@ struct TxPacket {
     TxPacket(std::vector<uint8_t> d, int mode = -1)
         : data(std::move(d)), oper_mode(mode), enqueue_ms(steady_now_ms()) {}
 };
+
+inline size_t queue_item_bytes(const TxPacket& p) { return p.data.size(); }
 
 namespace Frag {
     constexpr uint8_t MAGIC = 0xF3;

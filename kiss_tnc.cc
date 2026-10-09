@@ -1257,8 +1257,9 @@ int main(int argc, char** argv) {
 
                 cJSON_AddBoolToObject(j, "ptt_on", tnc.is_transmitting());
                 cJSON_AddNumberToObject(j, "tx_queue", (double)tnc.tx_queue_depth());
+                cJSON_AddNumberToObject(j, "tx_pending_bytes", (double)tnc.tx_pending_bytes());
                 cJSON_AddNumberToObject(j, "rx_frame_count", stats.sync_count - stats.preamble_errors - stats.crc_errors);
-                cJSON_AddNumberToObject(j, "tx_frame_count", 0); // TODO: add tx counter to KISSTNC
+                cJSON_AddNumberToObject(j, "tx_frame_count", (double)tnc.tx_frame_count());
                 cJSON_AddNumberToObject(j, "rx_error_count", stats.preamble_errors + stats.crc_errors);
                 cJSON_AddNumberToObject(j, "sync_count", stats.sync_count);
                 cJSON_AddNumberToObject(j, "preamble_errors", stats.preamble_errors);
@@ -1472,6 +1473,9 @@ int main(int argc, char** argv) {
 
             tnc.rx_frame_callback = [&ctrl](const RxFrameInfo& info) {
                 if (ctrl) ctrl->notify_rx_frame(info);
+            };
+            tnc.tx_event_callback = [&ctrl, &tnc](const TxEvent& ev) {
+                if (ctrl) ctrl->notify_tx_event(ev, tnc.tx_pending_bytes());
             };
         }
 
