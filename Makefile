@@ -73,7 +73,7 @@ else
     HAMLIB_FLAGS =
 endif
 
-.PHONY: all clean install debug help
+.PHONY: all clean install debug help arq_test
 
 all: $(TARGET)
 
@@ -93,7 +93,7 @@ ifneq ($(HIDAPI_LIBS),)
 endif
 
 clean:
-	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode
+	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim
 
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
@@ -134,6 +134,14 @@ test_robust: test_suite/test_robust.cc phy/robust_modem.hh phy/common.hh
 
 test_e2e: test_suite/test_e2e.cc modem.hh phy/robust_modem.hh phy/mfsk_modem.hh
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -I. -Iphy -o test_suite/$@ test_suite/test_e2e.cc -lm
+
+# ARQ link engine simulator (no audio, no radio); extra random seeds: ./tests/arq_sim 5000
+ARQ_HDRS = arq/arq_session.hh arq/arq_frames.hh arq/arq_params.hh
+tests/arq_sim: tests/arq_sim.cc $(ARQ_HDRS)
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -o $@ tests/arq_sim.cc
+
+arq_test: tests/arq_sim
+	./tests/arq_sim
 
 test_csma: test_suite/test_csma.cc csma.hh phy/robust_modem.hh miniaudio_audio.hh deps/miniaudio.o
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -I. -Iphy -o test_suite/$@ test_suite/test_csma.cc deps/miniaudio.o -lpthread -ldl -lm
