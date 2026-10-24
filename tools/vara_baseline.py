@@ -10,13 +10,47 @@ Usage: tools/vara_baseline.py [--a HOST:PORT] [--b HOST:PORT] [--bytes N] [--rev
   --a, --b    command ports; the data port is command port + 1
   --reverse   B sends to A instead
   --log FILE  also write the message log to FILE
+  --ptt-a, --ptt-b TTY   key that serial port's RTS on the station's PTT ON / PTT OFF
+                         messages (for radios; leave VARA's own PTT on an unused port)
+  --max-key S            unkey any station keyed longer than S seconds (default 20)
+  --stuck-cmd CMD        when the modem keys its own PTT: run CMD if PTT ON lasts over --max-key
 """
 import argparse
+import fcntl
+import os
 import random
 import select
+import signal
 import socket
+import struct
 import sys
+import termios
+import threading
 import time
+
+
+class Ptt:
+    """RTS keying on a serial port. Cleared on open and by unkey(); closing the port drops RTS too."""
+
+    BITS = termios.TIOCM_RTS | termios.TIOCM_DTR
+
+    def __init__(self, tty):
+        self.tty = tty
+        self.fd = os.open(tty, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        self.since = None
+        self.unkey()
+
+    def _set(self, bits, on):
+        fcntl.ioctl(self.fd, termios.TIOCMBIS if on else termios.TIOCMBIC, struct.pack('I', bits))
+
+    def key(self):
+        self._set(termios.TIOCM_RTS, True)
+        if self.since is None:
+            self.since = time.time()
+
+    def unkey(self):
+        self._set(self.BITS, False)
+        self.since = None
 
 
 # VARA FM 4.4 never sent a 3-byte write; 12 bytes and up went through
@@ -34,6 +68,25 @@ class Station:
         self.buf = b''
         self.rx = bytearray()
         self.msgs = []
+        self.ptt = None
+        self.keyed_s = 0.0
+        self.key_count = 0
+
+        self.key_since = None
+
+    def ptt_on(self):
+        if self.key_since is None:
+            self.key_since = time.time()
+            self.key_count += 1
+            if self.ptt:
+                self.ptt.key()
+
+    def ptt_off(self):
+        if self.key_since is not None:
+            self.keyed_s += time.time() - self.key_since
+            self.key_since = None
+        if self.ptt:
+            self.ptt.unkey()
 
     def send(self, line):
         self.cmd.sendall(line.encode() + b'\r')
@@ -54,6 +107,11 @@ def main():
     ap.add_argument('--settle', type=float, default=6, help='seconds to wait after CONNECTED')
     ap.add_argument('--chunk', type=int, default=256, help='bytes handed over every 0.5 s')
     ap.add_argument('--log')
+    ap.add_argument('--ptt-a')
+    ap.add_argument('--ptt-b')
+    ap.add_argument('--max-key', type=float, default=20)
+    ap.add_argument('--stuck-cmd', help='shell command run when a modem that keys its own PTT '
+                    'reports PTT ON for over --max-key seconds (e.g. "pkill -x VARAFM.exe")')
     args = ap.parse_args()
 
     a = Station('A', args.a, args.call_a)
@@ -67,6 +125,48 @@ def main():
         print(line, flush=True)
         if logf:
             logf.write(line + '\n')
+
+    def on_signal(signum, _frame):
+        raise SystemExit('signal %d' % signum)
+
+    for sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+        signal.signal(sig, on_signal)
+    for st, tty in ((a, args.ptt_a), (b, args.ptt_b)):
+        if tty:
+            st.ptt = Ptt(tty)
+    stop = threading.Event()
+
+    def watchdog():
+        while not stop.wait(0.2):
+            for st in (a, b):
+                since = st.key_since
+                if since is None or time.time() - since <= args.max_key:
+                    continue
+                st.ptt_off()
+                if st.ptt:
+                    log('%s WATCHDOG: keyed over %.0f s, unkeyed' % (st.name, args.max_key))
+                elif args.stuck_cmd:
+                    log('%s WATCHDOG: PTT ON over %.0f s, running: %s' % (st.name, args.max_key, args.stuck_cmd))
+                    os.system(args.stuck_cmd)
+
+    threading.Thread(target=watchdog, daemon=True).start()
+    try:
+        return session(args, a, b, tx, rx, t0, log)
+    finally:
+        stop.set()
+        for st in (a, b):
+            on = st.key_since is not None
+            st.ptt_off()
+            if st.ptt:
+                state = 'KEYED' if struct.unpack('I', fcntl.ioctl(
+                    st.ptt.fd, termios.TIOCMGET, struct.pack('I', 0)))[0] & termios.TIOCM_RTS else 'unkeyed'
+                os.close(st.ptt.fd)
+            else:
+                state = 'last reported PTT ON' if on else 'last reported PTT OFF'
+            log('%s PTT: keyed %d times, %.1f s total, now %s' % (st.name, st.key_count, st.keyed_s, state))
+
+
+def session(args, a, b, tx, rx, t0, log):
 
     def pump(wait):
         """Read both stations for up to `wait` seconds; returns new (station, message) pairs."""
@@ -88,6 +188,10 @@ def main():
                 if not m:
                     continue
                 st.msgs.append((time.time() - t0, m))
+                if m == 'PTT ON':
+                    st.ptt_on()
+                elif m == 'PTT OFF':
+                    st.ptt_off()
                 if m not in ('IAMALIVE', 'PTT ON', 'PTT OFF'):
                     log('%s< %s' % (st.name, m))
                 new.append((st, m))
