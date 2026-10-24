@@ -24,27 +24,87 @@ namespace DSP { using std::abs; using std::min; using std::cos; using std::sin; 
 #include "polar_tables_micro.hh"
 #include "hadamard_encoder.hh"
 
-struct Common
+// OFDM tone layouts. Every symbol has data_tones + seed_tones tones, with one seed (pilot)
+// tone in each block_length. A frame's codeword fills symbol_count * data_tones tones, so a
+// layout with fewer data tones uses proportionally more symbols (sym_scale) and spreads the
+// 256-bit meta codeword over meta_syms symbols.
+//
+// OfdmLegacy is modem73's original waveform and must stay bit-exact: 320 tones at 7.5 Hz,
+// 133 ms symbols, 2400 Hz.
+struct OfdmLegacy
+{
+	static const int data_tones = 256;
+	static const int seed_tones = 64;
+	static const int block_length = 5;
+	static const int block_skew = 3;
+	static const int first_seed = 4;
+	static const int hadamard_k = 7;	// seed code: 2^(k-1) tones, 2^k values
+	// Schmidl-Cox trigger (0: SC_THRESH_ON/OFF defaults). The metric between unrelated
+	// symbols is about 1/tone_count, so layouts with few tones need higher thresholds.
+	static constexpr double sc_thresh_on = 0;
+	static constexpr double sc_thresh_off = 0;
+	static constexpr int guard_len(int rate) { return rate / 300; }
+	static constexpr int symbol_len(int rate) { return rate / 300 * 40; }
+};
+
+// Short-symbol layouts for crystal-less USB interfaces whose clock wobbles by tens of us
+// within a 133 ms symbol (design proposal Section 7.2). Same 2400 Hz span and the same
+// 3.3 ms guard: at 1.67 ms the sync position can land in the guard's crossfade.
+struct OfdmNarrow30	// 80 tones at 30 Hz, 33.3 ms symbols
+{
+	static const int data_tones = 64;
+	static const int seed_tones = 16;
+	static const int block_length = 5;
+	static const int block_skew = 3;
+	static const int first_seed = 4;
+	static const int hadamard_k = 5;
+	static constexpr double sc_thresh_on = 0.25;
+	static constexpr double sc_thresh_off = 0.2;
+	static constexpr int guard_len(int rate) { return rate / 300; }
+	static constexpr int symbol_len(int rate) { return rate / 30; }
+};
+
+struct OfdmNarrow60	// 40 tones at 60 Hz, 16.7 ms symbols
+{
+	static const int data_tones = 32;
+	static const int seed_tones = 8;
+	static const int block_length = 5;
+	static const int block_skew = 3;
+	static const int first_seed = 4;
+	static const int hadamard_k = 4;
+	static constexpr double sc_thresh_on = 0.25;
+	static constexpr double sc_thresh_off = 0.2;
+	static constexpr int guard_len(int rate) { return rate / 300; }
+	static constexpr int symbol_len(int rate) { return rate / 60; }
+};
+
+template <typename P>
+struct CommonT
 {
 	static const int mod_max = 12;
 	static const int code_max = 16;
 	static const int bits_max = 1 << code_max;
 	static const int data_max = 8192;
-	static const int symbols_max = 2 * 44 + 1;
 	static const int64_t postamble_call = 0xF0F0F0F0F0F0LL;
 	static const int mls0_poly = 0x331;
 	static const int mls0_seed = 214;
 	static const int mls1_poly = 0x43;
 	static const int mls2_poly = 0x163;
-	static const int data_tones = 256;
-	static const int seed_tones = 64;
+	static const int data_tones = P::data_tones;
+	static const int seed_tones = P::seed_tones;
 	static const int tone_count = data_tones + seed_tones;
-	static const int block_length = 5;
-	static const int block_skew = 3;
-	static const int first_seed = 4;
+	static const int block_length = P::block_length;
+	static const int block_skew = P::block_skew;
+	static const int first_seed = P::first_seed;
+	static const int sym_scale = 256 / data_tones;
+	static const int meta_syms = 256 / data_tones;	// 256-bit meta codeword, BPSK
+	static const int seed_values = 1 << P::hadamard_k;
+	static const int symbols_max = (2 * 44 + 1) * sym_scale;
+	static_assert(256 % data_tones == 0, "data_tones must divide 256");
+	static_assert(seed_tones * block_length == tone_count, "one seed tone per block");
 	CODE::CRC<uint16_t> crc0;
 	CODE::CRC<uint32_t> crc1;
-	CODE::HadamardEncoder<7> hadamard_encoder;
+	CODE::HadamardEncoder<P::hadamard_k> hadamard_encoder;
 	int8_t seed[seed_tones];
 	uint8_t data[data_max];
 	const uint32_t *frozen_bits;
@@ -62,7 +122,10 @@ struct Common
 	// receivers reject code_rate 5/6 cleanly.
 	bool repeat2;
 
-	Common() : crc0(0xA8F4), crc1(0x8F6E37A0) {}
+	CommonT() : crc0(0xA8F4), crc1(0x8F6E37A0) {}
+
+	// seconds per symbol including the guard interval, at 48 kHz
+	static float symbol_sec() { return float(P::symbol_len(48000) + P::guard_len(48000)) / 48000.f; }
 
 
 	// QB microburst family bit 7 set with bit 0 clear
@@ -77,7 +140,7 @@ struct Common
 		if (modulation != 1 || sub != 0)
 			return false;
 		mod_bits = 2;
-		symbol_count = 1;
+		symbol_count = sym_scale;
 		code_order = 9;
 		data_bits = 256;
 		frozen_bits = frozen_512_288;
@@ -339,12 +402,15 @@ struct Common
 			return false;
 		}
 		std::cerr << std::endl;
+		symbol_count *= sym_scale;
 		oper_mode = mode;
 		data_bytes = data_bits / 8;
-		float duration = 41. / 300. * (3 + symbol_count);
+		float duration = symbol_sec() * (2 + meta_syms + symbol_count);
 		std::cerr << "duration: " << duration << "s" << std::endl;
 		std::cerr << "payload: " << data_bytes << "B" << std::endl;
 		std::cerr << "bitrate: " << data_bits / duration / 1000. << "kb/s" << std::endl;
 		return true;
 	}
 };
+
+using Common = CommonT<OfdmLegacy>;

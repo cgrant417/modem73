@@ -59,7 +59,11 @@ public:
 	value cfo_rad = 0;
 	value frac_cfo = 0;
 
-	SchmidlCox(const cmplx *sequence) : threshold(value(SC_THRESH_OFF * match_len), value(SC_THRESH_ON * match_len)) {
+	// The metric between unrelated symbols is roughly 1/tones, so layouts with few tones
+	// need higher thresholds than the defaults
+	SchmidlCox(const cmplx *sequence, value thresh_on = value(SC_THRESH_ON),
+		   value thresh_off = value(SC_THRESH_OFF))
+		: threshold(value(thresh_off * match_len), value(thresh_on * match_len)) {
 		fwd(kern, sequence);
 		for (int i = 0; i < symbol_len; ++i)
 			kern[i] = conj(kern[i]) / value(symbol_len);

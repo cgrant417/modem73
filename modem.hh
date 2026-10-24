@@ -228,12 +228,24 @@ struct ModemConfig {
 };
 
 // Encoder
-template<typename value, typename cmplx, int rate>
-class ModemEncoder : public Common {
+template<typename value, typename cmplx, int rate, typename P = OfdmLegacy>
+class ModemEncoder : public CommonT<P> {
 public:
+    typedef CommonT<P> Base;
+    using Base::mod_max; using Base::code_max; using Base::bits_max; using Base::data_max;
+    using Base::symbols_max; using Base::postamble_call; using Base::mls0_poly;
+    using Base::mls0_seed; using Base::mls1_poly; using Base::mls2_poly;
+    using Base::data_tones; using Base::seed_tones; using Base::tone_count;
+    using Base::block_length; using Base::block_skew; using Base::first_seed;
+    using Base::sym_scale; using Base::meta_syms; using Base::seed_values;
+    using Base::crc0; using Base::crc1; using Base::hadamard_encoder; using Base::seed;
+    using Base::data; using Base::frozen_bits; using Base::mod_bits; using Base::data_bits;
+    using Base::data_bytes; using Base::code_order; using Base::oper_mode; using Base::tone_off;
+    using Base::seed_off; using Base::symbol_count; using Base::repeat2; using Base::setup;
+    using Base::is_micro_mode;
     typedef int8_t code_type;
-    static const int guard_len = rate / 300;
-    static const int symbol_len = guard_len * 40;
+    static const int guard_len = P::guard_len(rate);
+    static const int symbol_len = P::symbol_len(rate);
     
     ModemEncoder() {}
     
@@ -307,14 +319,14 @@ public:
         polar_encoder(code, mesg, frozen_bits, code_order);
         shuffle(perm, code, code_order);
         
-        // Generate symbols
+        // Generate symbols: meta_syms meta symbols, then the data symbols
         CODE::MLS seq1(mls1_poly);
-        for (int j = 0, k = 0, m = 0; j < symbol_count + 1; ++j) {
+        for (int j = 0, k = 0, m = 0; j < symbol_count + meta_syms; ++j) {
             seed_off = (block_skew * j + first_seed) % block_length;
             for (int i = 0; i < tone_count; ++i) {
                 if (i % block_length == seed_off) {
                     tone[i] = nrz(seq1());
-                } else if (j) {
+                } else if (j >= meta_syms) {
                     int bits = mod_bits;
                     if (mod_bits == 3 && k % 32 == 30) bits = 2;
                     if (mod_bits == 6 && k % 64 == 60) bits = 4;
@@ -342,14 +354,16 @@ public:
             symbol(&pcm, -2);
             symbol(&pcm, -1);
             CODE::MLS seq1p(mls1_poly);
-            seed_off = first_seed;
-            for (int i = 0, m = 0; i < tone_count; ++i) {
-                if (i % block_length == seed_off)
-                    tone[i] = nrz(seq1p());
-                else
-                    tone[i] = map_bits(meta + m++, 1);
+            for (int j = 0, m = 0; j < meta_syms; ++j) {
+                seed_off = (block_skew * j + first_seed) % block_length;
+                for (int i = 0; i < tone_count; ++i) {
+                    if (i % block_length == seed_off)
+                        tone[i] = nrz(seq1p());
+                    else
+                        tone[i] = map_bits(meta + m++, 1);
+                }
+                symbol(&pcm, j);
             }
-            symbol(&pcm, 0);
         }
 
         for (int i = 0; i < guard_len; ++i)
@@ -362,7 +376,7 @@ public:
     }
     
     static int get_payload_size(int oper_mode) {
-        Common c;
+        Base c;
         if (!c.setup(oper_mode)) return 0;
         return c.data_bytes;
     }
@@ -371,7 +385,7 @@ private:
     DSP::FastFourierTransform<symbol_len, cmplx, -1> fwd;
     DSP::FastFourierTransform<symbol_len, cmplx, 1> bwd;
     CODE::PolarEncoder<code_type> polar_encoder;
-    code_type code[bits_max], perm[bits_max], mesg[bits_max], meta[data_tones];
+    code_type code[bits_max], perm[bits_max], mesg[bits_max], meta[256];
     cmplx fdom[symbol_len];
     cmplx tdom[symbol_len];
     cmplx test[symbol_len];
@@ -484,7 +498,7 @@ private:
                 tdom[i] *= scale;
         } else {
             value best_papr = 1000;
-            for (int seed_value = 0; seed_value < 128; ++seed_value) {
+            for (int seed_value = 0; seed_value < seed_values; ++seed_value) {
                 for (int i = 0; i < tone_count; ++i)
                     temp[i] = tone[i];
                 hadamard_encoder(seed, seed_value);
@@ -545,19 +559,33 @@ private:
 };
 
 // Decoder
-template<typename value, typename cmplx, int rate>
-class ModemDecoder : public Common {
+template<typename value, typename cmplx, int rate, typename P = OfdmLegacy>
+class ModemDecoder : public CommonT<P> {
 public:
+    typedef CommonT<P> Base;
+    using Base::mod_max; using Base::code_max; using Base::bits_max; using Base::data_max;
+    using Base::symbols_max; using Base::postamble_call; using Base::mls0_poly;
+    using Base::mls0_seed; using Base::mls1_poly; using Base::mls2_poly;
+    using Base::data_tones; using Base::seed_tones; using Base::tone_count;
+    using Base::block_length; using Base::block_skew; using Base::first_seed;
+    using Base::sym_scale; using Base::meta_syms; using Base::seed_values;
+    using Base::crc0; using Base::crc1; using Base::hadamard_encoder; using Base::seed;
+    using Base::data; using Base::frozen_bits; using Base::mod_bits; using Base::data_bits;
+    using Base::data_bytes; using Base::code_order; using Base::oper_mode; using Base::tone_off;
+    using Base::seed_off; using Base::symbol_count; using Base::repeat2; using Base::setup;
+    using Base::is_micro_mode;
+
     char last_call_[10] = {0};
     bool last_call_fresh_ = false;
     typedef int16_t code_type;
     typedef SIMD<code_type, 32> mesg_type;
     typedef DSP::Const<value> Const;
-    static const int guard_len = rate / 300;
-    static const int symbol_len = guard_len * 40;
+    static const int guard_len = P::guard_len(rate);
+    static const int symbol_len = P::symbol_len(rate);
     static const int filter_len = 129;
     static const int extended_len = symbol_len + guard_len;
-    static const int buffer_len = 5 * extended_len;
+    // preamble pair, meta symbols and slack for the sync position
+    static const int buffer_len = (4 + meta_syms) * extended_len;
     static const int search_pos = extended_len;
     static const int tone_off_const = -tone_count / 2;
     
@@ -570,7 +598,9 @@ public:
     ModemDecoder() {
         // init fdom_mls before correlator uses it
         init_mls0_seq();
-        correlator_ptr = new SchmidlCox<value, cmplx, search_pos, symbol_len, guard_len>(fdom_mls);
+        correlator_ptr = new SchmidlCox<value, cmplx, search_pos, symbol_len, guard_len>(
+            fdom_mls, value(P::sc_thresh_on > 0 ? P::sc_thresh_on : SC_THRESH_ON),
+            value(P::sc_thresh_off > 0 ? P::sc_thresh_off : SC_THRESH_OFF));
         blockdc.samples(filter_len);
         configure_frontend(1500, true);
         ring_.resize(ring_len);
@@ -620,6 +650,8 @@ public:
 
     int pending_shift_ = 0;
     int osc_lag_ = 0;
+    // frame symbol number of data symbol j is j + sym_base_ (meta symbols come first)
+    int sym_base_ = meta_syms - 1;
     int rescan_budget_ = 8;
 
     int seed_decode_rot(const cmplx* dm) {
@@ -757,7 +789,7 @@ private:
     DSP::BipBuffer<cmplx, buffer_len> input_hist;
     DSP::TheilSenEstimator<value, tone_count> tse;
     SchmidlCox<value, cmplx, search_pos, symbol_len, guard_len>* correlator_ptr = nullptr;
-    CODE::HadamardDecoder<7> hadamard_decoder;
+    CODE::HadamardDecoder<P::hadamard_k> hadamard_decoder;
     CODE::PolarListDecoder<mesg_type, code_max> polar_decoder;
     CODE::PolarEncoder<int8_t> ber_encoder;
     int8_t ber_mesg[bits_max], ber_code[bits_max];
@@ -1028,8 +1060,8 @@ private:
                     state_ = State::COLLECTING_SYMBOLS;
                     symbol_index_ = 1;  // Symbol 0 (meta) already processed
                     // Need to advance past preamble: symbol_pos + symbol_len + extended_len
-                    // Plus extended_len for the first data symbol
-                    samples_needed_ = symbol_pos + symbol_len + 2 * extended_len;
+                    // Plus meta_syms * extended_len to the first data symbol
+                    samples_needed_ = symbol_pos + symbol_len + (meta_syms + 1) * extended_len;
                 } else if (postamble_mode_ >= 0) {
                     if (postamble_rescue(callback))
                         ++stats_postamble_rescues;
@@ -1079,6 +1111,27 @@ private:
         }
     }
     
+    bool meta_symbols(value& precision) {
+        const cmplx* base = buf_;
+        snr[0] = precision;
+        k_ = data_tones;
+        mod_bits = 1;
+        erased_count_ = 0;
+        max_erased_ = meta_syms / 4;
+        sym_base_ = 0;
+        bool ok = true;
+        for (int g = 1; g < meta_syms && ok; ++g) {
+            buf_ = base + symbol_pos + symbol_len + (g + 1) * extended_len;
+            ok = process_symbol_body(g, false);
+        }
+        sym_base_ = meta_syms - 1;
+        buf_ = base;
+        if (!ok)
+            return false;
+        precision = std::min(snr[meta_syms - 1], value(1023));
+        return true;
+    }
+
     bool process_preamble() {
         // Process Schmidl-Cox preamble symbols
         osc.omega(-cfo_rad);
@@ -1218,6 +1271,11 @@ private:
         }
 #endif
         
+        // Layouts with fewer than 256 data tones carry the rest of the meta codeword in
+        // further symbols, demodulated like data symbols at one bit per tone
+        if (meta_syms > 1 && !meta_symbols(precision))
+            return false;
+
         // Decode meta data
         int64_t meta_info = meta_data();
         int mode;
@@ -1338,7 +1396,7 @@ private:
     }
 
     bool process_symbol_body(int j, bool allow_rescan) {
-        seed_off = (block_skew * j + first_seed) % block_length;
+        seed_off = (block_skew * (j + sym_base_) + first_seed) % block_length;
         sym_k_start_[j] = k_;
         auto clamp = [](int v) { return v < -127 ? -127 : v > 127 ? 127 : v; };
 #if OFDM_TIMING_TRACK
@@ -1785,7 +1843,7 @@ private:
             return false;
         int64_t anchor = (int64_t)ring_count_ - (int64_t)buffer_len + symbol_pos;
         int64_t dist = 2 * symbol_len + guard_len
-                     + (int64_t)(symbol_count + 1) * extended_len;
+                     + (int64_t)(symbol_count + meta_syms) * extended_len;
         int64_t begin = anchor - dist;
         int64_t oldest = std::max<int64_t>(0, (int64_t)ring_count_ - (int64_t)ring_len + 1);
         int first_j = 1;
@@ -1831,7 +1889,7 @@ private:
             bool bad = false;
             for (int j = 1; j <= symbol_count; ++j) {
                 buf_ = frame_raw_.data() + 2 * symbol_len + guard_len
-                     + (size_t)j * extended_len;
+                     + (size_t)(j + sym_base_) * extended_len;
                 if (!process_symbol(j)) { bad = true; break; }
             }
             if (!bad) {
@@ -1860,7 +1918,7 @@ private:
                 bool bad = false;
                 for (int j = 1; j <= symbol_count; ++j) {
                     if (j < first_j) {
-                        seed_off = (block_skew * j + first_seed) % block_length;
+                        seed_off = (block_skew * (j + sym_base_) + first_seed) % block_length;
                         sym_k_start_[j] = k_;
                         for (int i = seed_off; i < tone_count; i += block_length)
                             (*seq1_ptr)();
@@ -1868,7 +1926,7 @@ private:
                         continue;
                     }
                     buf_ = frame_raw_.data() + 2 * symbol_len + guard_len
-                         + (size_t)j * extended_len;
+                         + (size_t)(j + sym_base_) * extended_len;
                     if (!process_symbol(j)) { bad = true; break; }
                 }
                 forced_alpha_ = 0;

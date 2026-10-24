@@ -73,7 +73,7 @@ else
     HAMLIB_FLAGS =
 endif
 
-.PHONY: all clean install debug help arq_test
+.PHONY: all clean install debug help arq_test phy_test
 
 all: $(TARGET)
 
@@ -93,7 +93,7 @@ ifneq ($(HIDAPI_LIBS),)
 endif
 
 clean:
-	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim
+	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim tests/phy_jitter
 
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
@@ -142,6 +142,16 @@ tests/arq_sim: tests/arq_sim.cc $(ARQ_HDRS)
 
 arq_test: tests/arq_sim
 	./tests/arq_sim
+
+# OFDM PHY through a simulated timing-jitter channel, or real hardware via --tx-wav/--rx-wav
+tests/phy_jitter: tests/phy_jitter.cc modem.hh phy/common.hh schmidl_cox.hh
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -I. -Iphy -o $@ tests/phy_jitter.cc -lm
+
+phy_test: tests/phy_jitter
+	@for p in legacy n30 n60; do \
+	  ./tests/phy_jitter --profile $$p --mode "QPSK 1/2 normal" --frames 4 --snr 30 2>/dev/null || exit 1; \
+	  ./tests/phy_jitter --profile $$p --mode "QAM256 5/6 normal" --frames 4 --snr 35 --ppm 100 2>/dev/null || exit 1; \
+	done
 
 test_csma: test_suite/test_csma.cc csma.hh phy/robust_modem.hh miniaudio_audio.hh deps/miniaudio.o
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -I. -Iphy -o test_suite/$@ test_suite/test_csma.cc deps/miniaudio.o -lpthread -ldl -lm
