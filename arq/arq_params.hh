@@ -36,6 +36,9 @@ inline std::vector<LadderStep> narrow_ladder() {
         {{"QAM16 3/4 normal", 1534, 2733}, 16},
         {{"QAM256 2/3 normal", 2734, 2733}, 22},
         {{"QAM256 5/6 normal", 3406, 2733}, 26},
+        // Clean on a Digirig-to-Digirig cable (about 35 dB, Section 7.2); thresholds unverified on air
+        {{"QAM1024 3/4 normal", 6142, 4100}, 30},
+        {{"QAM1024 5/6 normal", 6814, 4100}, 33},
     };
 }
 
