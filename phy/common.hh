@@ -78,6 +78,23 @@ struct OfdmNarrow60	// 40 tones at 60 Hz, 16.7 ms symbols
 	static constexpr int symbol_len(int rate) { return rate / 60; }
 };
 
+// Wide layout for flat ~6 kHz audio, e.g. a 9600 data port (design proposal Phase 5): the
+// legacy tone count at 18.75 Hz, 53.3 ms symbols, 6000 Hz span. Centre it near 3300 Hz
+// (300-6300 Hz). The receiver finds the centre itself; only its input filter needs it.
+struct OfdmWide
+{
+	static const int data_tones = 256;
+	static const int seed_tones = 64;
+	static const int block_length = 5;
+	static const int block_skew = 3;
+	static const int first_seed = 4;
+	static const int hadamard_k = 7;
+	static constexpr double sc_thresh_on = 0;
+	static constexpr double sc_thresh_off = 0;
+	static constexpr int guard_len(int rate) { return rate / 300; }
+	static constexpr int symbol_len(int rate) { return rate * 4 / 75; }
+};
+
 template <typename P>
 struct CommonT
 {

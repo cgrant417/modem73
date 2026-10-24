@@ -21,7 +21,9 @@
 //   --rx-wav FILE              decode FILE (e.g. the tx audio recorded through real hardware)
 //                              instead of the simulated channel; use the same mode, profile,
 //                              frames and seed as the --tx-wav run
-//   --profile NAME             tone layout: legacy (default), n30, n60 (phy/common.hh)
+//   --profile NAME             tone layout: legacy (default), n30, n60, wide (phy/common.hh)
+//   --center HZ                centre frequency (default: 1500, or 300 Hz above the lowest
+//                              tone for layouts wider than 2400 Hz, i.e. 3300 for wide)
 
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +41,7 @@ struct Args {
     std::string trace;
     double trace_start = 0, sine_amp_us = 0, sine_hz = 0, ppm = 0, snr = 40;
     double step_us = 0, step_every = 0;
+    int center = 0;
     int frames = 20;
     unsigned seed = 1;
     bool hash_only = false;
@@ -118,11 +121,13 @@ int main(int argc, char** argv) {
         else if (k == "--profile") a.profile = next();
         else if (k == "--tx-wav") a.tx_wav = next();
         else if (k == "--rx-wav") a.rx_wav = next();
+        else if (k == "--center") a.center = atoi(next());
         else { fprintf(stderr, "unknown option %s\n", k.c_str()); return 2; }
     }
     if (a.profile == "legacy") return run<OfdmLegacy>(a);
     if (a.profile == "n30") return run<OfdmNarrow30>(a);
     if (a.profile == "n60") return run<OfdmNarrow60>(a);
+    if (a.profile == "wide") return run<OfdmWide>(a);
     fprintf(stderr, "unknown profile %s\n", a.profile.c_str());
     return 2;
 }
@@ -133,6 +138,8 @@ int run(const Args& a) {
     typedef ModemDecoder<float, DSP::Complex<float>, RATE, P> Decoder;
     int oper_mode = parse_mode(a.mode);
     if (oper_mode < 0) { fprintf(stderr, "bad mode '%s'\n", a.mode.c_str()); return 2; }
+    const int span = CommonT<P>::tone_count * RATE / P::symbol_len(RATE);
+    const int center = a.center ? a.center : std::max(1500, span / 2 + 300);
 
     std::vector<float> trace;
     if (!a.trace.empty()) {
@@ -156,7 +163,7 @@ int run(const Args& a) {
     for (int f = 0; f < a.frames; ++f) {
         std::vector<uint8_t> d(payload);
         for (auto& b : d) b = (uint8_t)rng();
-        auto s = enc->encode(d.data(), d.size(), 1500, call, oper_mode);
+        auto s = enc->encode(d.data(), d.size(), center, call, oper_mode);
         for (float v : s) { sig_pow += (double)v * v; ++sig_n; }
         tx.insert(tx.end(), s.begin(), s.end());
         tx.insert(tx.end(), RATE * 3 / 10, 0.0f);
@@ -220,6 +227,7 @@ int run(const Args& a) {
 
     // Receive
     auto dec = std::make_unique<Decoder>();
+    dec->configure_frontend(center, true);
     int good = 0, other = 0;
     std::vector<bool> got(sent.size(), false);
     auto cb = [&](const uint8_t* d, size_t len) {

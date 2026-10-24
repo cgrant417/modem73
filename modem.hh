@@ -608,9 +608,10 @@ public:
 
     void configure_frontend(int center_freq, bool enable_filter) {
         bpf_enabled_ = enable_filter;
-        // signal spans center +-1200 Hz; +-150 Hz margin for mistuning
-        value f1 = std::max(100, center_freq - 1350);
-        value f2 = std::min(rate / 2 - 100, center_freq + 1350);
+        // signal spans center +- half the tone span (1200 Hz narrow); +-150 Hz margin for mistuning
+        const int half_span = tone_count * rate / (2 * symbol_len) + 150;
+        value f1 = std::max(100, center_freq - half_span);
+        value f2 = std::min(rate / 2 - 100, center_freq + half_span);
         for (int i = 0; i < bpf_len; ++i) {
             int k = i - bpf_len / 2;
             value lp2 = k == 0 ? 2 * f2 / rate
