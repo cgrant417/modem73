@@ -4,15 +4,20 @@
 Station A uses CARD_A (default plughw:0,0), station B CARD_B (default plughw:1,0). KISS
 frames are sent A->B and B->A in each modulation; the receiving station's KISS client must
 get every frame intact. PTT none; each station gets a throwaway HOME (.asoundrc, settings).
-Needs native Linux: capture over WSL usbipd is not clean (see tools/audio_glitch.py).
+Use crystal-clocked interfaces (e.g. Digirig): usb2rig units slip 1 ms packets (tools/slip_correlate.py).
 Usage: cable_test.py path/to/modem73
-Env: MODES="QPSK:1/2 QAM16:3/4", N (frames per direction, default 5), CARD_A, CARD_B
+Env: MODES, N (frames per direction, default 5), SIZE (frame bytes, default 200),
+     PER_FRAME (seconds allowed per frame, default 8), CARD_A, CARD_B
+MODES is space-separated; each entry is MOD:RATE[:FLAG,...] for OFDM (e.g. BPSK:1/4:--short)
+or a comma-separated list of modem73 options (e.g. --robust-mode,RDM-300).
 """
 import os, socket, subprocess, sys, time
 
 BIN = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./modem73")
 WORK = "/tmp/m73cable"
 N = int(os.environ.get("N", "5"))
+SIZE = int(os.environ.get("SIZE", "200"))
+PER_FRAME = float(os.environ.get("PER_FRAME", "8"))
 MODES = os.environ.get("MODES", "QPSK:1/2 QAM16:3/4 QAM64:5/6 QAM256:5/6").split()
 STATIONS = {"A": (os.environ.get("CARD_A", "plughw:0,0"), 18101, "N0CAA"),
             "B": (os.environ.get("CARD_B", "plughw:1,0"), 18102, "N0CAB")}
@@ -36,7 +41,13 @@ def unwrap_all(buf):
         else: cur.append(b)
     return frames
 
-def start(name, mod, rate):
+def mode_args(m):
+    if ":" in m:
+        mod, rate, *extra = m.split(":")
+        return ["-m", mod, "-r", rate] + [a for e in extra for a in e.split(",")]
+    return m.split(",")
+
+def start(name, m):
     card, port, call = STATIONS[name]
     home = os.path.join(WORK, name)
     os.makedirs(home, exist_ok=True)
@@ -44,9 +55,9 @@ def start(name, mod, rate):
         f.write(f'pcm.!default {{ type asym playback.pcm "{card}" capture.pcm "{card}" }}\n')
     env = dict(os.environ, HOME=home)
     log = open(os.path.join(WORK, f"{name}.log"), "a")
-    log.write(f"\n===== {mod} {rate}\n"); log.flush()
+    log.write(f"\n===== {m}\n"); log.flush()
     p = subprocess.Popen([BIN, "--headless", "--port", str(port), "--control-port", "0",
-                          "--ptt", "none", "-c", call, "-m", mod, "-r", rate],
+                          "--ptt", "none", "-c", call] + mode_args(m),
                          stdout=log, stderr=subprocess.STDOUT, env=env, cwd=home)
     for _ in range(50):
         try:
@@ -78,20 +89,23 @@ def main():
         except FileNotFoundError: pass
     total_bad = 0
     for m in MODES:
-        mod, rate = m.split(":")
-        (pa, sa), (pb, sb) = start("A", mod, rate), start("B", mod, rate)
+        (pa, sa), (pb, sb) = start("A", m), start("B", m)
         time.sleep(2)
         for src, dst, ss, sd in (("A", "B", sa, sb), ("B", "A", sb, sa)):
-            sent = [f"{src}>{dst} {mod} {rate} #{i} ".encode() + bytes((i * 31 + k) & 0xFF for k in range(200))
+            sent = [f"{src}>{dst} {m} #{i} ".encode() + bytes((i * 31 + k) & 0xFF for k in range(SIZE))
                     for i in range(N)]
             t0 = time.time()
             for fr in sent: ss.sendall(wrap(fr))
-            got = collect(sd, N, 30 + N * 8)
+            got = collect(sd, N, 30 + N * PER_FRAME)
             dt = time.time() - t0
             ok = sum(1 for fr in sent if fr in got)
-            extra = len([g for g in got if g not in sent])
-            total_bad += (N - ok) + extra
-            print(f"{mod:7s} {rate}  {src}->{dst}: {ok}/{N} frames intact, {extra} unexpected, {dt:.1f}s", flush=True)
+            # modem73 truncates frames longer than the mode's payload; a received prefix
+            # of a sent frame is a good decode of a truncated frame
+            trunc = len([g for g in got if g not in sent and any(fr.startswith(g) for fr in sent)])
+            extra = len([g for g in got if g not in sent]) - trunc
+            total_bad += (N - ok - trunc) + extra
+            print(f"{m:24s} {src}->{dst}: {ok + trunc}/{N} decoded ({trunc} truncated), "
+                  f"{extra} unexpected, {dt:.1f}s", flush=True)
             time.sleep(2)
         for p in (pa, pb): stop(p)
         time.sleep(1)
