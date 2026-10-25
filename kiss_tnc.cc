@@ -227,6 +227,7 @@ void print_help(const char* prog) {
               << "      --bind ADDR         KISS bind address (default: 0.0.0.0)\n"
               << "      --vara-port PORT    VARA command port; data port is PORT+1 (default: 8300)\n"
               << "      --vara-bind ADDR    VARA bind address (default: 127.0.0.1)\n"
+              << "      --no-wide           VARA: narrow only; skip the wide (~6 kHz) OFDM decoder to save CPU\n"
               << "      --control-port PORT Control port (default: 8073, 0 to disable)\n"
               << "      --control-bind ADDR Control port bind address (default: 127.0.0.1)\n"
               << "\nAudio:\n"
@@ -413,6 +414,8 @@ int main(int argc, char** argv) {
         } else if (arg == "--vara-bind" && i + 1 < argc) {
             config.vara_bind_address = argv[++i];
             cli_set.insert("vara_bind_address");
+        } else if (arg == "--no-wide") {
+            config.ofdm_wide = false;
         } else if (arg == "--control-bind" && i + 1 < argc) {
             config.control_bind_address = argv[++i];
             cli_set.insert("control_bind_address");

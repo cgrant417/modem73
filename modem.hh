@@ -2107,3 +2107,6 @@ private:
 
 using Encoder48k = ModemEncoder<float, DSP::Complex<float>, 48000>;
 using Decoder48k = ModemDecoder<float, DSP::Complex<float>, 48000>;
+// ~6 kHz layout for a 9600 data port (phy/common.hh), used by the VARA server's wide class
+using EncoderWide48k = ModemEncoder<float, DSP::Complex<float>, 48000, OfdmWide>;
+using DecoderWide48k = ModemDecoder<float, DSP::Complex<float>, 48000, OfdmWide>;

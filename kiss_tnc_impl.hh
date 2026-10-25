@@ -156,11 +156,17 @@ static const char* ofdm_frame_size_name(int m) {
     return Common::is_micro_mode(m) ? "micro" : (m & 128) ? "long" : (m & 1) ? "normal" : "short";
 }
 
+// Set above the 8-bit operating mode for a frame in the wide OFDM layout (VARA host only)
+static const int OFDM_WIDE = 0x100;
+// Wide layout's centre: 300-6300 Hz (design proposal Phase 5)
+static const int OFDM_WIDE_CENTER_HZ = 3300;
+
 static std::string ofdm_mode_name(int m) {
     std::string s = ofdm_modulation_name(m);
     s += " ";
     s += ofdm_code_rate_name(m);
     s += Common::is_micro_mode(m) ? " M" : (m & 128) ? " L" : (m & 1) ? " N" : " S";
+    if (m >= 0 && (m & OFDM_WIDE)) s += " W";
     return s;
 }
 
@@ -179,6 +185,12 @@ public:
         encoder_ = std::make_unique<Encoder48k>();
         decoder_ = std::make_unique<Decoder48k>();
         decoder_->configure_frontend(config.center_freq, config.rx_filter_enabled);
+        if (config.host_interface == HostInterface::VARA && config.modem_type == 0 && config.ofdm_wide) {
+            std::cerr << "  Creating wide OFDM encoder/decoder" << std::endl;
+            encoder_w_ = std::make_unique<EncoderWide48k>();
+            decoder_w_ = std::make_unique<DecoderWide48k>();
+            decoder_w_->configure_frontend(OFDM_WIDE_CENTER_HZ, config.rx_filter_enabled);
+        }
 
         // Allocate MFSK encoder/decoder
         std::cerr << "  Creating MFSK encoder/decoder" << std::endl;
@@ -546,25 +558,44 @@ private:
         vara_host_->tick(steady_now_ms());
     }
 
-    // "QPSK 1/2 normal" -> OFDM operating-mode byte, or -1
-    static int arq_oper_mode(const std::string& name) {
+    // OFDM payload capacity and encoding for an operating mode, wide (OFDM_WIDE) or narrow
+    int ofdm_payload_size(int oper_mode) const {
+        if (oper_mode & OFDM_WIDE)
+            return encoder_w_ ? encoder_w_->get_payload_size(oper_mode & 0xff) : 0;
+        return encoder_->get_payload_size(oper_mode);
+    }
+
+    std::vector<float> ofdm_encode(const std::vector<uint8_t>& framed, int oper_mode) {
+        if (oper_mode & OFDM_WIDE) {
+            if (!encoder_w_) return {};
+            return encoder_w_->encode(framed.data(), framed.size(), OFDM_WIDE_CENTER_HZ,
+                                      modem_config_.call_sign, oper_mode & 0xff, config_.postamble);
+        }
+        return encoder_->encode(framed.data(), framed.size(), modem_config_.center_freq,
+                                modem_config_.call_sign, oper_mode, config_.postamble);
+    }
+
+    // "QPSK 1/2 normal" -> OFDM operating-mode byte, or -1; a trailing "wide" adds OFDM_WIDE
+    int arq_oper_mode(const std::string& name) const {
         std::istringstream in(name);
-        std::string mod, rate, size;
-        in >> mod >> rate >> size;
+        std::string mod, rate, size, layout;
+        in >> mod >> rate >> size >> layout;
         int fs = size == "short" ? 0 : size == "normal" ? 1 : size == "long" ? 2 : -1;
-        return fs < 0 ? -1 : ModemConfig::encode_mode(mod.c_str(), rate.c_str(), fs);
+        if (fs < 0 || !(layout.empty() || layout == "wide")) return -1;
+        if (layout == "wide" && !encoder_w_) return -1;
+        int om = ModemConfig::encode_mode(mod.c_str(), rate.c_str(), fs);
+        return om < 0 ? -1 : layout == "wide" ? om | OFDM_WIDE : om;
     }
 
     // Fill in a mode's real payload and airtime from the encoder; false if unusable
     bool arq_measure_mode(arq::ModeDesc& m) {
         int om = arq_oper_mode(m.name);
         if (om < 0) return false;
-        int cap = encoder_->get_payload_size(om);
+        int cap = ofdm_payload_size(om);
         if (cap <= 2) return false;
         std::vector<uint8_t> dummy(cap - 2, 0x55);
         auto framed = frame_with_length(dummy);
-        auto samples = encoder_->encode(framed.data(), framed.size(), modem_config_.center_freq,
-                                        modem_config_.call_sign, om, config_.postamble);
+        auto samples = ofdm_encode(framed, om);
         if (samples.empty()) return false;
         m.payload = cap - 2;
         m.air_ms = (int)(1000.0 * samples.size() / config_.sample_rate);
@@ -1164,7 +1195,7 @@ private:
         {
             size_t cap = payload_size_;
             if (config_.modem_type == 0 && oper_mode_override >= 0)
-                cap = encoder_->get_payload_size(oper_mode_override);
+                cap = ofdm_payload_size(oper_mode_override);
             else if (config_.modem_type == 2 && oper_mode_override >= 0 &&
                      oper_mode_override < ROBUST_MODE_COUNT)
                 cap = robust_encoder_->get_payload_size((RobustMode)oper_mode_override);
@@ -1197,13 +1228,7 @@ private:
                 tx_rmode
             );
         } else {
-            samples = encoder_->encode(
-                framed_data.data(), framed_data.size(),
-                modem_config_.center_freq,
-                modem_config_.call_sign,
-                tx_mode,
-                config_.postamble
-            );
+            samples = ofdm_encode(framed_data, tx_mode);
         }
         
         if (data_oversize) samples.clear();
@@ -1537,22 +1562,22 @@ private:
                 push_arq_event(ArqEvent::FRAME, payload, snr, arq_air_ms(info.oper_mode));
         };
         
-        auto ofdm_info = [this]() {
+        auto ofdm_info = [](auto* dec, bool wide) {
             RxFrameInfo info;
             info.modem = "ofdm";
-            info.oper_mode = decoder_->oper_mode;
+            info.oper_mode = dec->oper_mode | (wide ? OFDM_WIDE : 0);
             info.mode = ofdm_mode_name(info.oper_mode);
             info.modulation = ofdm_modulation_name(info.oper_mode);
             info.code_rate = ofdm_code_rate_name(info.oper_mode);
             info.frame_size = ofdm_frame_size_name(info.oper_mode);
-            const char* call = decoder_->last_call_;
+            const char* call = dec->last_call_;
             while (*call == ' ')
                 ++call;
             if (*call) {
                 info.callsign = call;
                 while (!info.callsign.empty() && info.callsign.back() == ' ')
                     info.callsign.pop_back();
-                info.callsign_source = decoder_->last_call_fresh_ ? "phy" : "stale";
+                info.callsign_source = dec->last_call_fresh_ ? "phy" : "stale";
             }
             return info;
         };
@@ -1571,14 +1596,14 @@ private:
             return info;
         };
 
-        // OFDM frame callback
-        auto frame_callback = [this, &deliver_to_clients, &ofdm_info](const uint8_t* data, size_t len) {
+        // OFDM frame callback, for the narrow decoder and (VARA host) the wide one
+        auto ofdm_frame = [this, &deliver_to_clients, &ofdm_info](auto* dec, bool wide, const uint8_t* data, size_t len) {
             set_tx_lockout(RX_LOCKOUT_SECONDS);
 
-            float snr = decoder_->get_last_snr();
-            float last_ber = decoder_->get_last_ber();
+            float snr = dec->get_last_snr();
+            float last_ber = dec->get_last_ber();
             float ber_pct = (last_ber >= 0) ? last_ber * 100.0f : -1.0f;
-            float ber_ema = decoder_->get_ber_ema();
+            float ber_ema = dec->get_ber_ema();
 
 #ifdef WITH_UI
             if (g_ui_state) {
@@ -1591,7 +1616,7 @@ private:
 #endif
 
             auto payload = unframe_length(data, len);
-            perf_log_.record(ofdm_mode_name(decoder_->oper_mode), snr, ber_pct,
+            perf_log_.record(ofdm_mode_name(dec->oper_mode | (wide ? OFDM_WIDE : 0)), snr, ber_pct,
                              (int)len, parse_seq(payload));
 
             if (payload.empty()) {
@@ -1610,11 +1635,17 @@ private:
                 auto reassembled = reassembler_.process(payload);
                 if (!reassembled.empty()) {
                     ui_log("RX: Reassembled " + std::to_string(reassembled.size()) + " bytes from fragments");
-                    deliver_to_clients(reassembled, snr, ber_pct, true, ofdm_info());
+                    deliver_to_clients(reassembled, snr, ber_pct, true, ofdm_info(dec, wide));
                 }
             } else {
-                deliver_to_clients(payload, snr, ber_pct, false, ofdm_info());
+                deliver_to_clients(payload, snr, ber_pct, false, ofdm_info(dec, wide));
             }
+        };
+        auto frame_callback = [&ofdm_frame, this](const uint8_t* data, size_t len) {
+            ofdm_frame(decoder_.get(), false, data, len);
+        };
+        auto frame_callback_w = [&ofdm_frame, this](const uint8_t* data, size_t len) {
+            ofdm_frame(decoder_w_.get(), true, data, len);
         };
 
         auto robust_frame_callback = [this, &deliver_to_clients, &robust_info](const uint8_t* data, size_t len) {
@@ -1795,6 +1826,7 @@ private:
                             rxf = config_.rx_filter_enabled;
                         }
                         decoder_->configure_frontend(cf, rxf);
+                        if (decoder_w_) decoder_w_->configure_frontend(OFDM_WIDE_CENTER_HZ, rxf);
                         for (int i = 0; i < 3; ++i)
                             mfsk_decoders_[i]->configure(MFSK_RX_MODES[i], cf);
                         robust_decoder_->configure(cf);
@@ -1803,6 +1835,7 @@ private:
                     }
                     if (was_blanking) {
                         decoder_->reset();
+                        if (decoder_w_) decoder_w_->reset();
                         for (auto& d : mfsk_decoders_) d->reset();
                         robust_decoder_->reset();
                         robust_decoder_n_->reset();
@@ -1880,6 +1913,8 @@ private:
                         set_tx_lockout((tone_hold_until_ms_ - tnow) / 1000.0f);
                     if (ofdm_rx)
                         decoder_->process(buffer.data(), n, frame_callback);
+                    if (ofdm_rx && decoder_w_)
+                        decoder_w_->process(buffer.data(), n, frame_callback_w);
                     if (mfsk_rx)
                         for (int i = 0; i < 3; ++i)
                             mfsk_decoders_[i]->process(buffer.data(), n, mfsk_callbacks[i]);
@@ -1891,7 +1926,8 @@ private:
                     tnow = steady_now_ms();
                     // sync DCD: OFDM meta-validated in_frame and pilot-confirmed
                     // RDM collects only; MFSK syncs are too loose to gate TX on
-                    dcd_active_ = (ofdm_rx && decoder_->in_frame()) ||
+                    dcd_active_ = (ofdm_rx && (decoder_->in_frame() ||
+                                               (decoder_w_ && decoder_w_->in_frame()))) ||
                                   (robust_rx &&
                                    (robust_decoder_->carrier_active() ||
                                     robust_decoder_n_->carrier_active())) ||
@@ -2117,6 +2153,9 @@ private:
     
     std::unique_ptr<Encoder48k> encoder_;
     std::unique_ptr<Decoder48k> decoder_;
+    // wide layout, VARA host only (null otherwise); its frames carry OFDM_WIDE in oper_mode
+    std::unique_ptr<EncoderWide48k> encoder_w_;
+    std::unique_ptr<DecoderWide48k> decoder_w_;
     std::unique_ptr<MFSKEncoder> mfsk_encoder_;
     static constexpr MFSKMode MFSK_RX_MODES[3] = {
         MFSKMode::MFSK_8, MFSKMode::MFSK_16, MFSKMode::MFSK_32};

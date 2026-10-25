@@ -175,6 +175,7 @@ struct TNCConfig {
     // RX decoder settings
     bool mfsk_rx_enabled = true;
     bool ofdm_rx_enabled = true;
+    bool ofdm_wide = true;          // VARA host only: also send and decode the wide (~6 kHz) OFDM layout
     bool robust_rx_enabled = true;
     bool robust_enhanced_retry = false;
 
