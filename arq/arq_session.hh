@@ -73,6 +73,11 @@ public:
 
     void set_mycall(const std::string& call) { mycall_ = upper(call); }
     void listen(bool on) { listen_ = on; }
+    // Bandwidth classes to offer when calling and to accept when called; takes effect at
+    // the next connection
+    void set_bw_offer(uint8_t bw) { p_.bw_offer = (bw & BW_MASK) ? (bw & BW_MASK) : BW_NARROW; }
+    uint8_t bw_offer() const { return p_.bw_offer; }
+    bool wide_supported() const { return (supported_bw() & BW_WIDE) != 0; }
 
     bool connect(const std::string& target, int64_t now) {
         if (state_ != State::DISCONNECTED || mycall_.empty()) return false;
@@ -483,10 +488,12 @@ private:
             burst_step_ = -1;
             burst_new_ = false;
         }
-        // A full frame's size names its step; a short last segment matches none
+        // A full frame's size names its step, with its airtime where two steps share a size
+        // (the wide ladder); a short last segment matches none
         const auto& ladder = p_.ladder(bw_);
         for (int i = (int)ladder.size() - 1; i >= 0; --i)
-            if (f.payload.size() + DATA_HEADER_SIZE == (size_t)ladder[i].mode.payload) {
+            if (f.payload.size() + DATA_HEADER_SIZE == (size_t)ladder[i].mode.payload &&
+                (air_ms <= 0 || air_ms == ladder[i].mode.air_ms)) {
                 burst_step_ = std::max(burst_step_, i);
                 break;
             }

@@ -227,6 +227,8 @@ void print_help(const char* prog) {
               << "      --bind ADDR         KISS bind address (default: 0.0.0.0)\n"
               << "      --vara-port PORT    VARA command port; data port is PORT+1 (default: 8300)\n"
               << "      --vara-bind ADDR    VARA bind address (default: 127.0.0.1)\n"
+              << "      --vara-bw BW        VARA bandwidth: narrow, or wide for a 9600 data port at both\n"
+              << "                          ends (falls back to narrow with a narrow peer; default: narrow)\n"
               << "      --no-wide           VARA: narrow only; skip the wide (~6 kHz) OFDM decoder to save CPU\n"
               << "      --control-port PORT Control port (default: 8073, 0 to disable)\n"
               << "      --control-bind ADDR Control port bind address (default: 127.0.0.1)\n"
@@ -416,6 +418,14 @@ int main(int argc, char** argv) {
             cli_set.insert("vara_bind_address");
         } else if (arg == "--no-wide") {
             config.ofdm_wide = false;
+        } else if (arg == "--vara-bw" && i + 1 < argc) {
+            std::string bw = argv[++i];
+            for (auto& c : bw) c = (char)tolower((unsigned char)c);
+            if (bw != "narrow" && bw != "wide") {
+                std::cerr << "--vara-bw: expected narrow or wide, got '" << bw << "'" << std::endl;
+                return 1;
+            }
+            config.vara_wide = bw == "wide";
         } else if (arg == "--control-bind" && i + 1 < argc) {
             config.control_bind_address = argv[++i];
             cli_set.insert("control_bind_address");

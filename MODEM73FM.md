@@ -81,6 +81,7 @@ modem73fm --headless -c YOURCALL \
 - **Ports:** the VARA command port is 8300 and the data port is 8301, on 127.0.0.1. Use `--vara-port` and `--vara-bind` to change them. 8300 is also real VARA's port, so on a machine that runs VARA as well, pick another, for example `--vara-port 8400`.
 - **PTT:** modem73fm keys the radio itself, with any of modem73's PTT types (`com`, `cm108`, `rigctl`, `vox`, and others). Turn PTT control **off** in the host program (Pat, LinBPQ).
 - **Callsign:** `-c` sets the callsign sent in every OFDM frame. The host's `MYCALL` sets the ARQ session's callsign.
+- **Bandwidth:** narrow (2.4 kHz) by default. With `--vara-bw wide`, a station offers the wide waveform (300–6300 Hz) when it calls and accepts it when called. A session is wide only if both stations offer it; otherwise it falls back to narrow. Use wide only when both radios are on their 9600 data ports, since mic and speaker audio cuts off above about 3 kHz. A host's `BW WIDE` or `BW NARROW` changes the setting for the next connection. `--no-wide` leaves the wide decoder out, to save CPU.
 - **One host at a time** per port, as with VARA.
 
 ### Audio devices
@@ -150,7 +151,8 @@ The speed ladder runs from BPSK 1/2 to QAM1024 5/6 (about 0.7 to 13 kbps per fra
 ## VARA commands supported
 
 - **Used:** `MYCALL`, `LISTEN ON|OFF`, `CONNECT <mycall> <target>`, `DISCONNECT`, `ABORT`, `DIRTYDISCONNECT`, `VERSION`.
-- **Accepted and ignored:** `LISTEN CQ`, `BW…` (narrow only so far), `COMPRESSION`, `CWID`, `CHAT`, `PUBLIC`, `ENCRYPTION`, `WINLINK`, `P2P`, `CLEANTXBUFFER`. A digipeater path after `CONNECT` is ignored.
+- **Bandwidth:** `BW WIDE` or `BWWIDE` offers wide, `BW NARROW` or `BWNARROW` narrow only. VARA HF's widths (`BW500`, `BW2300`, `BW2750`) leave the setting as it is.
+- **Accepted and ignored:** `LISTEN CQ`, `COMPRESSION`, `CWID`, `CHAT`, `PUBLIC`, `ENCRYPTION`, `WINLINK`, `P2P`, `CLEANTXBUFFER`. A digipeater path after `CONNECT` is ignored.
 - **Anything else:** gets `WRONG`, and the command is logged.
 - **Replies:** `OK`, `WRONG`, `PENDING`, `CANCELPENDING`, `CONNECTED <caller> <called> NARROW`, `DISCONNECTED`, `BUFFER n`, `PTT ON|OFF`, `SN x`, `BITRATE (level) n bps`, `BUSY ON|OFF`, and `IAMALIVE` every 60 s.
 
@@ -158,14 +160,14 @@ Run with `-v` to log every command and reply.
 
 ## Not done yet
 
-- **Wide mode:** a 6 kHz OFDM profile exists, but the VARA server offers narrow only.
+- **Wide mode:** works over the loopback card (64 KB at 17.2 kbps net each way), but its speed ladder's S/N thresholds are placeholders until it is calibrated on a cable and over the radios.
 - **Timing:** each turnaround costs about 5 s. That dominates short Winlink exchanges, where the message protocol (B2F) makes many small turns.
 - **More radios:** the speed ladder's switch points have only been checked on the bench radios.
 
 ## Development tools
 
-- `make arq_test`: ARQ engine simulator, 255 checks plus a 1000-seed stress run.
-- `make vara_test`: two VARA hosts over a simulated channel, 95 checks.
+- `make arq_test`: ARQ engine simulator, 281 checks, including stress runs over 1000 narrow and 500 wide random seeds.
+- `make vara_test`: two VARA hosts over a simulated channel, 113 checks.
 - `tools/vara_pair.sh start|stop`: two VARA-mode instances, on the ALSA loopback card or on real interfaces (`CARD_A`/`CARD_B`), optionally keying radios (`PTT_A`/`PTT_B`).
 - `tools/vara_baseline.py`: drives two VARA (or modem73fm) instances the way Pat does, and reports throughput.
 - `tools/host_select_check.py`: checks the `--host` startup choice.

@@ -176,6 +176,7 @@ struct TNCConfig {
     bool mfsk_rx_enabled = true;
     bool ofdm_rx_enabled = true;
     bool ofdm_wide = true;          // VARA host only: also send and decode the wide (~6 kHz) OFDM layout
+    bool vara_wide = false;         // VARA host: offer wide when calling and accept it when called
     bool robust_rx_enabled = true;
     bool robust_enhanced_retry = false;
 

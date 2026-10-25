@@ -632,6 +632,30 @@ private:
         for (const auto& s : ladder)
             std::cerr << " | " << s.mode.name << " " << s.mode.payload << " B " << s.mode.air_ms << " ms";
         std::cerr << std::endl;
+        // wide: only with the wide encoder/decoder, and kept whole or not at all, since step
+        // numbers index the ladder at both ends
+        std::vector<arq::LadderStep> wide;
+        if (encoder_w_) {
+            for (auto step : p.ladder_wide) {
+                if (!arq_measure_mode(step.mode)) {
+                    ui_log("(!) ARQ: wide ladder mode " + step.mode.name + " not available, wide disabled");
+                    wide.clear();
+                    break;
+                }
+                wide.push_back(step);
+            }
+        }
+        p.ladder_wide = wide;
+        if (!wide.empty()) {
+            std::cerr << "ARQ: wide ladder";
+            for (const auto& s : wide)
+                std::cerr << " | " << s.mode.name << " " << s.mode.payload << " B " << s.mode.air_ms << " ms";
+            std::cerr << std::endl;
+        }
+        if (config_.vara_wide && wide.empty())
+            ui_log("(!) VARA: --vara-bw wide needs the wide decoder (not --no-wide); offering narrow");
+        p.bw_offer = config_.vara_wide && !wide.empty() ? (arq::BW_NARROW | arq::BW_WIDE) : arq::BW_NARROW;
+        std::cerr << "VARA: offering " << (p.bw_offer & arq::BW_WIDE ? "wide (or narrow)" : "narrow") << std::endl;
 
         VaraHost::Radio radio;
         radio.transmit = [this](const std::vector<std::vector<uint8_t>>& frames,

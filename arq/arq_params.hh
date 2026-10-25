@@ -45,6 +45,28 @@ inline std::vector<LadderStep> narrow_ladder() {
     };
 }
 
+// Wide (~6 kHz, 9600 data port) ladder: the OfdmWide layout, named "... wide". Its frames
+// are 2.5 times shorter than narrow ones, so from QAM16 up it uses long frames to keep the
+// turnaround a smaller share of each cycle. Several steps share a payload size (QAM64 and
+// QAM256 at the same rate, long and normal frames); the receiver tells them apart by airtime.
+// min_snr_db: placeholders from the narrow ladder's calibration, interpolated for QAM64,
+// until the wide ladder is calibrated on the cable (design proposal 7.7).
+inline std::vector<LadderStep> wide_ladder() {
+    return {
+        {{"BPSK 1/2 normal wide", 254, 1077}, -100},
+        {{"QPSK 1/2 normal wide", 510, 1077}, 4},
+        {{"QPSK 3/4 normal wide", 766, 1077}, 6},
+        {{"QAM16 1/2 long wide", 2046, 1983}, 8},
+        {{"QAM16 3/4 long wide", 3070, 1983}, 11},
+        {{"QAM64 2/3 long wide", 5470, 2663}, 15},
+        {{"QAM64 5/6 long wide", 6814, 2663}, 18},
+        {{"QAM256 2/3 long wide", 5470, 1983}, 20},
+        {{"QAM256 5/6 long wide", 6814, 1983}, 24},
+        {{"QAM1024 3/4 normal wide", 6142, 1643}, 27},
+        {{"QAM1024 5/6 normal wide", 6814, 1643}, 30},
+    };
+}
+
 struct Params {
     // Timers (Section 8.7)
     int turnaround_ms = 300;          // G: wait after the peer's transmission before keying
@@ -73,12 +95,12 @@ struct Params {
     ModeDesc connect_mode{"BPSK 1/2 short", 126, 1640};
     ModeDesc control_mode{"QPSK 1/2 short", 126, 1093};
     std::vector<LadderStep> ladder_narrow = narrow_ladder();
-    std::vector<LadderStep> ladder_wide;   // defined in Phase 5 from measured wide modes
+    std::vector<LadderStep> ladder_wide = wide_ladder();   // empty: wide not supported
     int start_step = 1;
     int up_after_clean_bursts = 3;    // after a lossy burst; before any loss one clean burst may jump to the SNR's step
     int up_snr_margin_db = 2;
 
-    uint8_t bw_offer = BW_NARROW;     // bandwidth classes offered/accepted (host BW command)
+    uint8_t bw_offer = BW_NARROW;     // bandwidth classes offered/accepted (startup or host BW command)
 
     const std::vector<LadderStep>& ladder(uint8_t bw) const {
         return (bw == BW_WIDE && !ladder_wide.empty()) ? ladder_wide : ladder_narrow;

@@ -92,8 +92,22 @@ public:
             else
                 link_.abort(now);
         } else if (cmd.rfind("BW", 0) == 0) {
-            // BW500 / BW2300 / BW2750 (VARA HF), BW NARROW / BW WIDE, BWWIDE.
-            // Only the narrow ladder exists so far, so every setting offers narrow.
+            // BW WIDE / BWWIDE offers wide (falling back to narrow with a narrow-only peer),
+            // BW NARROW / BWNARROW narrow only; for the next connection. VARA HF's widths
+            // (BW500 / BW2300 / BW2750) leave the setting as it is.
+            std::string b = cmd.size() > 2 ? cmd.substr(2) : arg(1);
+            if (b == "WIDE") {
+                if (link_.wide_supported()) {
+                    link_.set_bw_offer(arq::BW_NARROW | arq::BW_WIDE);
+                } else {
+                    log("VARA: BW WIDE asked for, but wide is off (--no-wide); staying narrow");
+                }
+            } else if (b == "NARROW") {
+                link_.set_bw_offer(arq::BW_NARROW);
+            } else {
+                log("VARA: '" + raw + "' ignored; bandwidth stays " +
+                    ((link_.bw_offer() & arq::BW_WIDE) ? "wide" : "narrow"));
+            }
             reply("OK");
         } else if (cmd == "VERSION") {
             reply(std::string("VERSION ") + VERSION);

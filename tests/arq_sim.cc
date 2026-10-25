@@ -131,8 +131,9 @@ struct Sim {
     double loss_prob(const ModeDesc& m, float s) const {
         float need = 3.0f;   // control-frame modes
         if (m.name == params.connect_mode.name) need = 0.0f;
-        for (const auto& step : params.ladder_narrow)
-            if (step.mode.name == m.name) need = (float)std::max(0, step.min_snr_db);
+        for (const auto* l : {&params.ladder_narrow, &params.ladder_wide})
+            for (const auto& step : *l)
+                if (step.mode.name == m.name) need = (float)std::max(0, step.min_snr_db);
         double margin = s - need;
         double p_snr = 1.0 / (1.0 + std::exp(2.0 * (margin + 1.0)));
         return 1.0 - (1.0 - p_snr) * (1.0 - random_loss);
@@ -613,13 +614,13 @@ TEST(idle_then_data) {
     check(sim.st[0].link->state() == State::CONNECTED, "link stayed up through the idle period");
 }
 
-TEST(random_seeds) {
-    int seeds = 1000;
-    if (const char* e = getenv("ARQ_SEEDS")) seeds = atoi(e);
+static Params wide_params();
+
+static void random_seeds_run(bool wide, int seeds, int seed_base) {
     int complete = 0, failed_link = 0, bad = 0;
     for (int s = 0; s < seeds; ++s) {
-        std::mt19937 r(50000 + s);
-        Sim sim(r());
+        std::mt19937 r(seed_base + s);
+        Sim sim(r(), wide ? wide_params() : Params());
         sim.random_loss = std::uniform_real_distribution<double>(0.0, 0.3)(r);
         float base = std::uniform_real_distribution<float>(8.0f, 30.0f)(r);
         sim.snr = [base](int, int, int64_t t) { return base + 3.0f * std::sin(t / 20000.0); };
@@ -630,7 +631,7 @@ TEST(random_seeds) {
         if (!res.prefix_ok || !res.terminated) {
             bad++;
             if (bad <= 5)
-                printf("    seed %d: prefix_ok=%d terminated=%d (loss %.2f, snr %.1f, %zu/%zu B)\n", 50000 + s,
+                printf("    seed %d: prefix_ok=%d terminated=%d (loss %.2f, snr %.1f, %zu/%zu B)\n", seed_base + s,
                        res.prefix_ok, res.terminated, sim.random_loss, base, a, b);
         } else if (res.complete) {
             complete++;
@@ -638,11 +639,94 @@ TEST(random_seeds) {
             failed_link++;
         }
     }
-    printf("    %d seeds: %d complete, %d ended by link failure, %d invariant violations\n", seeds, complete,
-           failed_link, bad);
+    printf("    %s%d seeds: %d complete, %d ended by link failure, %d invariant violations\n", wide ? "wide: " : "",
+           seeds, complete, failed_link, bad);
     check(bad == 0, "no invariant violations across random seeds");
     // Channels here go down to ~5 dB SNR with up to 30% extra loss, so some link failures are expected
     check(complete >= seeds * 90 / 100, "at least 90% of random transfers complete");
+}
+
+TEST(random_seeds) {
+    int seeds = 1000;
+    if (const char* e = getenv("ARQ_SEEDS")) seeds = atoi(e);
+    random_seeds_run(false, seeds, 50000);
+    random_seeds_run(true, std::max(1, seeds / 2), 70000);
+}
+
+static Params wide_params() {
+    Params p;
+    p.bw_offer = BW_NARROW | BW_WIDE;
+    return p;
+}
+
+static uint8_t connected_bw(const Sim::Station& s) {
+    for (const auto& e : s.events)
+        if (e.type == HostEventType::CONNECTED) return e.bw;
+    return 0;
+}
+
+static bool all_wide(const std::set<std::string>& modes) {
+    for (const auto& m : modes)
+        if (m.size() < 5 || m.compare(m.size() - 5, 5, " wide") != 0) return false;
+    return !modes.empty();
+}
+
+TEST(wide_negotiation) {
+    {
+        Sim sim(30, wide_params());
+        sim.add("ALPHA", false);
+        sim.add("BRAVO", true);
+        expect_complete(transfer(sim, 20000, 5000), "both offer wide");
+        check(connected_bw(sim.st[0]) == BW_WIDE && connected_bw(sim.st[1]) == BW_WIDE,
+              "both ends connected wide");
+        check(all_wide(sim.st[0].modes_used) && all_wide(sim.st[1].modes_used), "every DATA frame was wide");
+    }
+    for (int narrow_end = 0; narrow_end < 2; ++narrow_end) {
+        Sim sim(31 + narrow_end, wide_params());
+        sim.add("ALPHA", false);
+        sim.add("BRAVO", true);
+        sim.st[narrow_end].link->set_bw_offer(BW_NARROW);
+        expect_complete(transfer(sim, 8000, 0), narrow_end ? "caller wide, called narrow" : "caller narrow, called wide");
+        check(connected_bw(sim.st[0]) == BW_NARROW && connected_bw(sim.st[1]) == BW_NARROW,
+              "fell back to narrow");
+        for (const auto& m : sim.st[0].modes_used)
+            check(m.find("wide") == std::string::npos, "no wide DATA frames in a narrow session (" + m + ")");
+    }
+    {
+        Params p = wide_params();
+        p.ladder_wide.clear();   // a station without the wide decoder
+        Sim sim(33, p);
+        sim.add("ALPHA", false);
+        sim.add("BRAVO", true);
+        expect_complete(transfer(sim, 4000, 0), "wide offered, not supported");
+        check(connected_bw(sim.st[0]) == BW_NARROW, "unsupported wide is not negotiated");
+    }
+}
+
+TEST(wide_clean_climbs) {
+    Sim sim(34, wide_params());
+    sim.snr = [](int, int, int64_t) { return 33.0f; };   // the top step needs 30 + 2
+    sim.add("ALPHA", false);
+    sim.add("BRAVO", true);
+    auto r = transfer(sim, 200000, 0, 30 * 60 * 1000, true);
+    expect_complete(r, "wide clean 200 kB");
+    check(sim.st[0].modes_used.count("QAM1024 5/6 normal wide") == 1, "wide link reached its top step at 33 dB");
+}
+
+TEST(wide_step_by_airtime) {
+    // At 20.5 dB the link should settle at QAM64 5/6 (18 + 2 dB; the next step needs 20 + 2).
+    // QAM256 5/6 and QAM1024 5/6 have the same payload: read by size alone, the receiver
+    // would take a QAM64 5/6 burst for QAM1024 5/6 and suggest from there
+    Sim sim(35, wide_params());
+    sim.snr = [](int, int, int64_t) { return 20.5f; };
+    sim.add("ALPHA", false);
+    sim.add("BRAVO", true);
+    auto r = transfer(sim, 150000, 0, 30 * 60 * 1000, true);
+    expect_complete(r, "wide 150 kB at 20.5 dB");
+    check(sim.st[0].modes_used.count("QAM64 5/6 long wide") == 1, "used QAM64 5/6 at 20.5 dB");
+    bool above = false;
+    for (const auto& m : sim.st[0].modes_used) above |= m.rfind("QAM256", 0) == 0 || m.rfind("QAM1024", 0) == 0;
+    check(!above, "never sent above the channel's step");
 }
 
 // ./arq_sim trace <seed> <loss> <a_bytes> <b_bytes>: one verbose transfer
@@ -684,6 +768,9 @@ int main(int argc, char** argv) {
     RUN(connect_no_answer);
     RUN(busy_third_station);
     RUN(idle_then_data);
+    RUN(wide_negotiation);
+    RUN(wide_clean_climbs);
+    RUN(wide_step_by_airtime);
     RUN(random_seeds);
     printf("\n%d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;

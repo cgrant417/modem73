@@ -237,6 +237,38 @@ static void host_drops(bool verbose) {
     check(b_down, "host drop: peer told DISCONNECTED");
 }
 
+// BW WIDE at both ends gives a wide session; narrow at either end falls back to narrow
+static void wide_session(const char* bw_a, const char* bw_b, bool expect_wide, bool verbose) {
+    char tag[64];
+    snprintf(tag, sizeof tag, "A %s, B %s", bw_a, bw_b);
+    Sim s(40);
+    s.snr = 37.0f;
+    s.verbose = verbose;
+    s.cmd(0, "MYCALL N0AAA");
+    s.cmd(0, bw_a);
+    s.cmd(0, "BW2300");   // VARA HF widths leave the setting alone
+    s.cmd(1, "MYCALL N0BBB");
+    s.cmd(1, "LISTEN ON");
+    s.cmd(1, bw_b);
+    check(s.st[0].lines == std::vector<std::string>({"OK", "OK", "OK"}), std::string(tag) + ": A setup replies");
+    s.cmd(0, "CONNECT N0AAA N0BBB");
+    bool up = s.run_until([&] { return s.saw(0, "CONNECTED") && s.saw(1, "CONNECTED"); }, 120000);
+    check(up, std::string(tag) + ": both sides CONNECTED");
+    if (!up) return;
+    const char* want = expect_wide ? "CONNECTED N0AAA N0BBB WIDE" : "CONNECTED N0AAA N0BBB NARROW";
+    check(s.saw(0, want) && s.saw(1, want), std::string(tag) + ": " + want);
+    auto a_data = pattern(120000, 41);
+    s.st[0].vh->data(a_data, s.now);
+    bool done = s.run_until([&] { return s.st[1].received.size() >= a_data.size(); }, 900000);
+    check(done && s.st[1].received == a_data, std::string(tag) + ": data intact");
+    const auto& top_ladder = expect_wide ? s.params.ladder_wide : s.params.ladder_narrow;
+    check(s.st[1].vh->link().rx_step() == (int)top_ladder.size() - 1,
+          std::string(tag) + ": receive step at the top of the " + (expect_wide ? "wide" : "narrow") + " ladder");
+    s.cmd(0, "DISCONNECT");
+    check(s.run_until([&] { return s.saw(0, "DISCONNECTED") && s.saw(1, "DISCONNECTED"); }, 120000),
+          std::string(tag) + ": both sides DISCONNECTED");
+}
+
 int main(int argc, char** argv) {
     bool verbose = argc > 1 && std::string(argv[1]) == "-v";
     session(1, 0.0, 20000, 3000, verbose);
@@ -247,6 +279,9 @@ int main(int argc, char** argv) {
     session(6, 0.0, 120000, 2000, false, 37.0f, 1500, true);
     no_answer(false);
     host_drops(false);
+    wide_session("BW WIDE", "BWWIDE", true, false);
+    wide_session("BW WIDE", "BW NARROW", false, false);
+    wide_session("BWNARROW", "BW WIDE", false, false);
     printf("%d checks, %d failed\n", checks, fails);
     return fails ? 1 : 0;
 }
