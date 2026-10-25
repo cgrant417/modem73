@@ -23,10 +23,19 @@ else
     exit 1
 fi
 
-PARENT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_URL="https://github.com/cgrant417/modem73.git"
+BRANCH="modem73fm"
 
-echo "=== MODEM73 Installer ==="
-echo "Install directory: $PARENT_DIR"
+# Build in the checkout this script came from; run on its own, clone modem73fm here
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/kiss_tnc.cc" ] && [ -f "$SCRIPT_DIR/app_info.hh" ]; then
+    SRC_DIR="$SCRIPT_DIR"
+else
+    SRC_DIR="$(pwd)/modem73fm"
+fi
+
+echo "=== MODEM73FM Installer ==="
+echo "Source directory: $SRC_DIR"
 echo ""
 
 # Depending on the distribution style, the naming convention and sources for
@@ -65,20 +74,18 @@ elif [[ $DIST_STYLE == "arch" ]]; then
     sudo pacman -Syu --needed $PACKAGES
 fi
 
-cd "$PARENT_DIR"
-
-if [ ! -d "modem73" ]; then
-    git clone "https://github.com/RFnexus/modem73.git"
+if [ ! -d "$SRC_DIR" ]; then
+    git clone --branch "$BRANCH" "$REPO_URL" "$SRC_DIR"
 fi
 
-cd modem73
+cd "$SRC_DIR"
 make clean 2>/dev/null || true
 make -j"$(nproc)"
 
 echo ""
 echo "Build complete."
 
-if [[ "$CM108" =~ ^[Yy]$ ]] && ! ldd modem73 2>/dev/null | grep -q hidapi; then
+if [[ "$CM108" =~ ^[Yy]$ ]] && ! ldd modem73fm 2>/dev/null | grep -q hidapi; then
     echo ""
     echo "WARNING: you asked for CM108 USB PTT, but the binary is not linked"
     echo "against hidapi, so CM108 is disabled. The Makefile detects hidapi"
@@ -87,7 +94,7 @@ if [[ "$CM108" =~ ^[Yy]$ ]] && ! ldd modem73 2>/dev/null | grep -q hidapi; then
 fi
 
 echo ""
-read -rp "Install modem73 to /usr/local/bin? [y/N] " INSTALL
+read -rp "Install modem73fm to /opt/modem73fm (command linked from /usr/local/bin)? [y/N] " INSTALL
 if [[ "$INSTALL" =~ ^[Yy]$ ]]; then
     # Some Arch Linux systems, and even some Debian-like ones that have been
     # modified, may not have /usr/local/bin as a valid directory. If that is
@@ -95,8 +102,8 @@ if [[ "$INSTALL" =~ ^[Yy]$ ]]; then
     sudo mkdir -p /usr/local/bin
     sudo make install
     echo ""
-    echo "Run: modem73 to launch"
+    echo "Run: modem73fm to launch"
 else
     echo ""
-    echo "Run: cd $(pwd) && ./modem73 to launch"
+    echo "Run: cd $(pwd) && ./modem73fm to launch"
 fi

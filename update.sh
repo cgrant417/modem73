@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# modem73 update script
-# https://github.com/RFnexus/modem73
+# modem73fm update script
+# https://github.com/cgrant417/modem73 (branch modem73fm)
 #
 
 set -e
 
-REPO_URL="https://github.com/RFnexus/modem73.git"
-INSTALL_DIR="${MODEM73_DIR:-$HOME/modem73}"
-BRANCH="${MODEM73_BRANCH:-master}"
+REPO_URL="https://github.com/cgrant417/modem73.git"
+INSTALL_DIR="${MODEM73FM_DIR:-$HOME/modem73fm}"
+BRANCH="${MODEM73FM_BRANCH:-modem73fm}"
 
 if [ -t 1 ]; then
     RED='\033[0;31m'
@@ -43,7 +43,7 @@ else
     error "C++ compiler (g++ or clang++) is required but not installed"
 fi
 
-info "modem73 updater"
+info "modem73fm updater"
 echo "  Repository: $REPO_URL"
 echo "  Branch:     $BRANCH"
 echo "  Install to: $INSTALL_DIR"
@@ -54,6 +54,14 @@ NEEDS_BUILD=1
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Updating existing installation..."
     cd "$INSTALL_DIR"
+
+    # Only ever update a checkout of this fork: on an upstream modem73 clone the steps
+    # below would switch branches and could discard work
+    ORIGIN=$(git remote get-url origin 2>/dev/null || true)
+    case "$ORIGIN" in
+        *cgrant417/modem73|*cgrant417/modem73.git) ;;
+        *) error "$INSTALL_DIR has origin '$ORIGIN', not the modem73fm fork; refusing to update it. Set MODEM73FM_DIR to a modem73fm checkout." ;;
+    esac
 
     if [ -n "$(git status --porcelain)" ]; then
         warn "Local changes detected:"
@@ -99,7 +107,7 @@ else
 fi
 
 if [ "$NEEDS_BUILD" = "1" ] || [ "$1" = "--force" ]; then
-    info "Building modem73..."
+    info "Building modem73fm..."
     make clean >/dev/null 2>&1 || true
 
     if make -j"$(nproc 2>/dev/null || echo 2)"; then
@@ -108,10 +116,10 @@ if [ "$NEEDS_BUILD" = "1" ] || [ "$1" = "--force" ]; then
         echo "  Commit: $(git rev-parse --short HEAD)"
         echo "  Date:   $(git log -1 --format=%ci)"
         echo ""
-        if [ -x "$INSTALL_DIR/modem73" ]; then
-            info "Binary: $INSTALL_DIR/modem73"
+        if [ -x "$INSTALL_DIR/modem73fm" ]; then
+            info "Binary: $INSTALL_DIR/modem73fm ($("$INSTALL_DIR/modem73fm" --version 2>/dev/null))"
         else
-            error "Build reported success but $INSTALL_DIR/modem73 is missing"
+            error "Build reported success but $INSTALL_DIR/modem73fm is missing"
         fi
     else
         error "Build failed"

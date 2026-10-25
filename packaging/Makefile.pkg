@@ -1,3 +1,5 @@
+# Distribution package build for modem73fm: binary in PREFIX/bin, udev rules renamed so the
+# package does not own the same files as an upstream modem73 package
 CXX ?= g++
 CC  ?= gcc
 
@@ -6,8 +8,10 @@ CXXFLAGS = -std=c++17 -O3 $(ARCH_FLAGS) -Wall -Wextra
 
 GIT_EXACT := $(shell git describe --tags --exact-match 2>/dev/null | sed 's/^v//')
 GIT_BASE := $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
-VERSION ?= $(if $(GIT_EXACT),$(GIT_EXACT),$(if $(GIT_BASE),$(GIT_BASE)-dev,dev))
+VERSION ?= $(if $(GIT_EXACT),$(GIT_EXACT),$(if $(GIT_BASE),$(GIT_BASE)-dev,2.4.2))
 CXXFLAGS += -DMODEM73_VERSION=\"$(VERSION)\"
+APP_VERSION ?= 0.1
+CXXFLAGS += -DAPP_VERSION=\"$(APP_VERSION)\"
 LDFLAGS = -lpthread -ltinfo -lncurses -ldl -lm
 
 PREFIX ?= /usr
@@ -19,9 +23,9 @@ MODEM_SRC ?= deps/aicodix/modem
 
 INCLUDES = -I$(AICODIX_DSP) -I$(AICODIX_CODE) -I$(MODEM_SRC)
 
-TARGET = modem73
+TARGET = modem73fm
 SRCS = kiss_tnc.cc
-HDRS = kiss_tnc.hh kiss_tnc_impl.hh kiss_server.hh vara_server.hh rx_frame_info.hh tx_event.hh csma.hh tone_dcd.hh miniaudio_audio.hh rigctl_ptt.hh hamlib_ptt.hh gpio_ptt.hh modem.hh phy/mfsk_modem.hh phy/robust_modem.hh phy/common.hh tnc_ui.hh tnc_ui_state.hh control_port.hh
+HDRS = app_info.hh perf_log.hh kiss_tnc.hh kiss_tnc_impl.hh kiss_server.hh vara_server.hh vara_host.hh arq/arq_session.hh arq/arq_frames.hh arq/arq_params.hh rx_frame_info.hh tx_event.hh csma.hh tone_dcd.hh miniaudio_audio.hh rigctl_ptt.hh hamlib_ptt.hh gpio_ptt.hh modem.hh phy/mfsk_modem.hh phy/robust_modem.hh phy/common.hh tnc_ui.hh tnc_ui_state.hh control_port.hh
 OBJS = deps/miniaudio.o deps/cJSON.o
 
 UI_FLAGS = -DWITH_UI
@@ -73,8 +77,8 @@ install: $(TARGET)
 ifneq ($(HIDAPI_LIBS),)
 	@if [ -f misc/50-cm108-ptt.rules ]; then \
 		install -d $(DESTDIR)$(PREFIX)/lib/udev/rules.d; \
-		install -m 644 misc/50-cm108-ptt.rules $(DESTDIR)$(PREFIX)/lib/udev/rules.d/; \
+		install -m 644 misc/50-cm108-ptt.rules $(DESTDIR)$(PREFIX)/lib/udev/rules.d/50-modem73fm-cm108-ptt.rules; \
 	fi
 endif
 	install -d $(DESTDIR)$(PREFIX)/lib/udev/rules.d
-	install -m 644 misc/60-gpio-ptt.rules $(DESTDIR)$(PREFIX)/lib/udev/rules.d/
+	install -m 644 misc/60-gpio-ptt.rules $(DESTDIR)$(PREFIX)/lib/udev/rules.d/60-modem73fm-gpio-ptt.rules
