@@ -1,8 +1,6 @@
 #pragma once
 
-#ifndef MODEM73_VERSION
-#define MODEM73_VERSION "dev"
-#endif
+#include "app_info.hh"
 
 #include <string>
 #include <vector>
@@ -732,7 +730,7 @@ struct TNCUIState {
         FILE* f = fopen(tmp.c_str(), "w");
         if (!f) return false;
 
-        fprintf(f, "# MODEM73 Settings\n");
+        fprintf(f, "# " APP_TITLE " Settings\n");
         fprintf(f, "callsign=%s\n", callsign.c_str());
         fprintf(f, "modem_type=%d\n", modem_type_index);
         fprintf(f, "mfsk_mode=%d\n", mfsk_mode_index);
@@ -982,7 +980,7 @@ struct TNCUIState {
         FILE* f = fopen(tmp.c_str(), "w");
         if (!f) return false;
 
-        fprintf(f, "# MODEM73 Presets \n");
+        fprintf(f, "# " APP_TITLE " Presets \n");
         for (const auto& p : presets) {
             // 1=short, 0=normal, 2=long, 3=micro
             fprintf(f, "preset=%s,%d,%d,%d,%d,%d,%.1f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",

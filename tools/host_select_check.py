@@ -24,11 +24,11 @@ def check(cond, what):
 
 def home(name, settings=None):
     h = os.path.join(WORK, name)
-    os.makedirs(os.path.join(h, ".config", "modem73"))
+    os.makedirs(os.path.join(h, ".config", "modem73fm"))
     with open(os.path.join(h, ".asoundrc"), "w") as f:
         f.write(f'pcm.!default {{ type asym playback.pcm "{CARD}" capture.pcm "{CARD}" }}\n')
     if settings:
-        with open(os.path.join(h, ".config", "modem73", "settings"), "w") as f:
+        with open(os.path.join(h, ".config", "modem73fm", "settings"), "w") as f:
             f.write(settings)
     return h
 

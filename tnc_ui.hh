@@ -2307,10 +2307,10 @@ private:
         addstr("/ / / ");
         attroff(A_DIM);
         attron(A_BOLD);
-        addstr("MODEM73");
+        addstr(APP_TITLE);
         attroff(A_BOLD);
         attron(A_DIM);
-        addstr(" v" MODEM73_VERSION);
+        addstr(" v" APP_VERSION " (modem73 " MODEM73_VERSION ")");
         attroff(A_DIM);
         addstr(" ");
         
@@ -6158,7 +6158,7 @@ private:
         mvaddch(start_y + help_h - 1, start_x + help_w - 1, ACS_LRCORNER);
         
         attron(A_BOLD);
-        mvaddstr(start_y, start_x + 3, " MODEM73 HELP ");
+        mvaddstr(start_y, start_x + 3, " " APP_TITLE " HELP ");
         attroff(A_BOLD);
         attroff(COLOR_PAIR(4));
         

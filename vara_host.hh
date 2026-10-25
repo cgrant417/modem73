@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "app_info.hh"
 #include "arq/arq_session.hh"
 
 class VaraHost {
@@ -28,7 +29,7 @@ public:
         std::function<void(const std::string& msg)> log;
     };
 
-    static constexpr const char* VERSION = "modem73fm VARA 0.1";
+    static constexpr const char* VERSION = APP_NAME " VARA " APP_VERSION;
     static constexpr int ALIVE_INTERVAL_MS = 60000;
 
     VaraHost(arq::Params params, Radio radio, Host host, uint32_t seed = std::random_device{}())

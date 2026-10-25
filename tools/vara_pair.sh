@@ -8,7 +8,7 @@
 # Then drive them with tools/vara_baseline.py --a 127.0.0.1:8400 --b 127.0.0.1:8410.
 #
 # Usage: tools/vara_pair.sh start|stop [extra modem73 options]
-BIN=${BIN:-$(dirname "$0")/../modem73}
+BIN=${BIN:-$(dirname "$0")/../modem73fm}
 WORK=${WORK:-/tmp/m73vara}
 cmd=$1; shift
 

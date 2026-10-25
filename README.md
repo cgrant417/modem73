@@ -110,20 +110,20 @@ sudo apt install libhidapi-dev
 
 
 ```
-# Clone modem73
+# Clone modem73fm (this fork's modem73fm branch)
 
-git clone https://github.com/RFnexus/modem73
+git clone -b modem73fm https://github.com/cgrant417/modem73
 
 # Build
 
 cd modem73
 make 
 
-# Optional: move to /usr/local/bin 
+# Optional: install to /opt/modem73fm, with the command linked from /usr/local/bin
 sudo make install 
 ```
 
-and run `./modem73`
+and run `./modem73fm` (or `modem73fm` once installed). It installs and keeps its settings (`~/.config/modem73fm`) apart from upstream modem73, so both can be installed at once. `sudo make uninstall` removes it.
 
 ### macOS
 
@@ -156,43 +156,43 @@ There are currently five PTT options:
 
 ```
 # Start in UI mode
-./modem73
+./modem73fm
 
 # Start in headless mode
-./modem73 --headless
+./modem73fm --headless
 
 # See all options with:
-./modem73 --help
+./modem73fm --help
 ```
 
 ### Selecting a mode
 
 ```
 # OFDM (default), pick modulation, code rate and frame size
-./modem73 --head-m QAM16 -r 3/4 --normal
+./modem73fm --head-m QAM16 -r 3/4 --normal
 
 # ROBUST, suffix S for short frames
-./modem73 --robust-mode RDM-600S
+./modem73fm --robust-mode RDM-600S
 
 # MFSK
-./modem73 --mfsk-mode MFSK-16
+./modem73fm --mfsk-mode MFSK-16
 ```
 
 ### CSMA
 
 ```
 # Pick the busy detector, then a band and preset for the timings
-./modem73 --csma-mode sync --csma-band vhf --csma-preset moderate
+./modem73fm --csma-mode sync --csma-band vhf --csma-preset moderate
 
 # Individual knobs override the preset when they come after it
-./modem73 --headless --csma-band hf --csma-preset relaxed --csma-burst 3
+./modem73fm --headless --csma-band hf --csma-preset relaxed --csma-burst 3
 ```
 
 ### TX audio level
 
 ```
 # Soundcard output drive, 5-100 percent
-./modem73 --tx-level 60
+./modem73fm --tx-level 60
 ```
 
 
@@ -200,28 +200,28 @@ There are currently five PTT options:
 
 ```
 # Connect to rigctld for PTT control
-./modem73 --rigctl localhost:4532
+./modem73fm --rigctl localhost:4532
 ```
 
 while running `rigctld`
 
 
 ```
-./modem73 --ptt vox --vox-freq 1200 --vox-lead 500 --vox-tail 150
+./modem73fm --ptt vox --vox-freq 1200 --vox-lead 500 --vox-tail 150
 # 500ms vox lead and 150ms vox tail
 ```
 
 
 ```
-./modem73 --ptt com --com-port /dev/ttyUSB0 --com-line rts
+./modem73fm --ptt com --com-port /dev/ttyUSB0 --com-line rts
 ```
 
 ```
 # CM108 USB audio interface PTT (GPIO3 is the default)
-./modem73 --ptt cm108 --cm108-gpio 3
+./modem73fm --ptt cm108 --cm108-gpio 3
 
 # Interfaces whose PTT circuit keys when the GPIO pin is pulled low
-./modem73 --ptt cm108 --cm108-gpio 3 --cm108-active-low
+./modem73fm --ptt cm108 --cm108-gpio 3 --cm108-active-low
 ```
 
 ### Control port

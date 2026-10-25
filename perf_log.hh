@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <sys/stat.h>
 
+#include "app_info.hh"
+
 struct PerfModeStats {
     std::string mode;
     int frames = 0;
@@ -34,7 +36,7 @@ public:
 
     static std::string default_path() {
         const char* home = getenv("HOME");
-        return std::string(home ? home : ".") + "/.config/modem73/perf.csv";
+        return std::string(home ? home : ".") + APP_CONFIG_SUBDIR "/perf.csv";
     }
 
     void record(const std::string& mode, float snr, float ber_pct, int bytes,
@@ -91,7 +93,7 @@ public:
         const char* home = getenv("HOME");
         if (home) {
             mkdir((std::string(home) + "/.config").c_str(), 0755);
-            mkdir((std::string(home) + "/.config/modem73").c_str(), 0755);
+            mkdir((std::string(home) + APP_CONFIG_SUBDIR).c_str(), 0755);
         }
         static const char* header = "time,mode,snr_db,ber_pct,bytes,seq,lost_before\n";
         struct stat st;

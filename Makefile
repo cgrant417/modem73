@@ -10,6 +10,14 @@ BASE_VERSION := 2.4.2
 VERSION ?= $(if $(GIT_EXACT),$(GIT_EXACT),$(BASE_VERSION))
 CXXFLAGS += -DMODEM73_VERSION=\"$(VERSION)\"
 
+# This fork's own name and version (app_info.hh); it installs beside upstream modem73
+APP_VERSION ?= 0.1
+CXXFLAGS += -DAPP_VERSION=\"$(APP_VERSION)\"
+
+# make install: the binary goes in INSTALL_DIR/bin, with a link in PREFIX/bin
+INSTALL_DIR ?= /opt/modem73fm
+PREFIX ?= /usr/local
+
 # dependencies
 AICODIX_DSP ?= deps/aicodix/dsp
 AICODIX_CODE ?= deps/aicodix/code
@@ -35,10 +43,10 @@ ifdef NCURSES_SRC
 endif
 LDFLAGS += $(NCURSES_LIBS)
 
-TARGET = modem73
+TARGET = modem73fm
 
 SRCS = kiss_tnc.cc
-HDRS = kiss_tnc.hh kiss_tnc_impl.hh kiss_server.hh vara_server.hh vara_host.hh arq/arq_session.hh arq/arq_frames.hh arq/arq_params.hh rx_frame_info.hh tx_event.hh csma.hh tone_dcd.hh miniaudio_audio.hh rigctl_ptt.hh hamlib_ptt.hh modem.hh phy/mfsk_modem.hh phy/robust_modem.hh phy/common.hh tnc_ui.hh tnc_ui_state.hh control_port.hh
+HDRS = app_info.hh perf_log.hh kiss_tnc.hh kiss_tnc_impl.hh kiss_server.hh vara_server.hh vara_host.hh arq/arq_session.hh arq/arq_frames.hh arq/arq_params.hh rx_frame_info.hh tx_event.hh csma.hh tone_dcd.hh miniaudio_audio.hh rigctl_ptt.hh hamlib_ptt.hh modem.hh phy/mfsk_modem.hh phy/robust_modem.hh phy/common.hh tnc_ui.hh tnc_ui_state.hh control_port.hh
 OBJS = deps/miniaudio.o deps/cJSON.o
 
 # defualt to build with UI, headless operations through --headless
@@ -73,7 +81,7 @@ else
     HAMLIB_FLAGS =
 endif
 
-.PHONY: all clean install debug help arq_test phy_test vara_test
+.PHONY: all clean install uninstall debug help arq_test phy_test vara_test
 
 all: $(TARGET)
 
@@ -93,10 +101,14 @@ ifneq ($(HIDAPI_LIBS),)
 endif
 
 clean:
-	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim tests/phy_jitter tests/vara_host_sim
+	rm -f $(TARGET) modem73 $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim tests/phy_jitter tests/vara_host_sim
 
 install: $(TARGET)
-	install -m 755 $(TARGET) /usr/local/bin/
+	install -d $(DESTDIR)$(INSTALL_DIR)/bin $(DESTDIR)$(INSTALL_DIR)/misc $(DESTDIR)$(PREFIX)/bin
+	install -m 755 $(TARGET) $(DESTDIR)$(INSTALL_DIR)/bin/
+	install -m 644 misc/*.rules $(DESTDIR)$(INSTALL_DIR)/misc/
+	ln -sf $(INSTALL_DIR)/bin/$(TARGET) $(DESTDIR)$(PREFIX)/bin/$(TARGET)
+	@echo "Installed $(INSTALL_DIR)/bin/$(TARGET), linked from $(PREFIX)/bin/$(TARGET)"
 ifneq ($(HIDAPI_LIBS),)
 	@if [ -f misc/50-cm108-ptt.rules ]; then \
 		cp misc/50-cm108-ptt.rules /etc/udev/rules.d/ 2>/dev/null || \
@@ -109,6 +121,12 @@ ifneq ($(UNAME_S),Darwin)
 		echo "Note: Run 'sudo cp misc/60-gpio-ptt.rules /etc/udev/rules.d/' for GPIO PTT udev rules"; \
 	fi
 endif
+
+# Removes what install put in INSTALL_DIR and the PREFIX/bin link; settings in ~/.config/modem73fm stay
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
+	rm -f $(DESTDIR)$(INSTALL_DIR)/bin/$(TARGET) $(addprefix $(DESTDIR)$(INSTALL_DIR)/,$(wildcard misc/*.rules))
+	-rmdir $(DESTDIR)$(INSTALL_DIR)/bin $(DESTDIR)$(INSTALL_DIR)/misc $(DESTDIR)$(INSTALL_DIR)
 
 # Debug build
 debug: CXXFLAGS = -std=c++17 -g -O0 -Wall -Wextra -DDEBUG
@@ -168,12 +186,13 @@ wav_decode: test_suite/wav_decode.cc modem.hh phy/robust_modem.hh phy/mfsk_modem
 
 # Help
 help:
-	@echo "MODEM73 makefile"
+	@echo "MODEM73FM makefile (fork of modem73)"
 	@echo ""
 	@echo "Targets:"
 	@echo "  all      - Build modem"
 	@echo "  clean    - Remove build"
-	@echo "  install  - Install to /usr/local/bin"
+	@echo "  install   - Install to INSTALL_DIR (default /opt/modem73fm), linked from PREFIX/bin"
+	@echo "  uninstall - Remove what install put there (settings in ~/.config/modem73fm stay)"
 	@echo "  debug    - Build with debug symbols"
 	@echo ""
 	@echo "Variables:"
@@ -184,6 +203,8 @@ help:
 	@echo "  NCURSES_SRC  - extra ncurses include directory"
 	@echo "  NCURSES_LIBS - ncurses link flags (default: -lncurses -ltinfo, macOS: -lncurses)"
 	@echo "  ARCHFLAGS    - CPU tuning flags (default: -march=native)"
+	@echo "  INSTALL_DIR  - install directory (default: /opt/modem73fm)"
+	@echo "  PREFIX       - where the command link goes (default: /usr/local, so /usr/local/bin)"
 	@echo ""
 	@echo "Optional features:"
 	@echo "  CM108 PTT    - Requires libhidapi-dev (auto-detected)"
@@ -193,6 +214,6 @@ help:
 	@echo "  make"
 	@echo ""
 	@echo "Runtime options:"
-	@echo "  ./modem73            # Run with UI"
-	@echo "  ./modem73  -h        # Run headless"
-	@echo "  ./modem73  --headless"
+	@echo "  ./modem73fm           # Run with UI"
+	@echo "  ./modem73fm -h        # Run headless"
+	@echo "  ./modem73fm --headless"

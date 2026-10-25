@@ -5,7 +5,7 @@ Station A uses CARD_A (default plughw:0,0), station B CARD_B (default plughw:1,0
 frames are sent A->B and B->A in each modulation; the receiving station's KISS client must
 get every frame intact. PTT none; each station gets a throwaway HOME (.asoundrc, settings).
 Use crystal-clocked interfaces (e.g. Digirig): usb2rig units slip 1 ms packets (tools/slip_correlate.py).
-Usage: cable_test.py path/to/modem73
+Usage: cable_test.py path/to/modem73fm
 Env: MODES, N (frames per direction, default 5), SIZE (frame bytes, default 200),
      PER_FRAME (seconds allowed per frame, default 8), CARD_A, CARD_B
 MODES is space-separated; each entry is MOD:RATE[:FLAG,...] for OFDM (e.g. BPSK:1/4:--short)
@@ -13,7 +13,7 @@ or a comma-separated list of modem73 options (e.g. --robust-mode,RDM-300).
 """
 import os, socket, subprocess, sys, time
 
-BIN = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./modem73")
+BIN = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "./modem73fm")
 WORK = "/tmp/m73cable"
 N = int(os.environ.get("N", "5"))
 SIZE = int(os.environ.get("SIZE", "200"))

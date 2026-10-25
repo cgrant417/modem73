@@ -14,7 +14,7 @@ Needs: Linux, python3, a real ALSA capture/playback card for timing (no radio, P
 off), and modem73 built with ALSA (do not install libpulse: miniaudio would prefer Pulse).
 
 Usage:
-  tools/kiss_regress.py base=/path/to/master/modem73 new=./modem73
+  tools/kiss_regress.py base=/path/to/master/modem73 new=./modem73fm
   RX_REPEAT=base:3 tools/kiss_regress.py base=... new=...   # re-decode air_base 3x per binary
 Env: M73_CARD (default plughw:0,0), M73_PORT (default 18001), M73_WORK (default /tmp/m73regress)
 

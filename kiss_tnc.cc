@@ -1,3 +1,4 @@
+#include "app_info.hh"
 #include "kiss_tnc_impl.hh"
 #ifdef WITH_UI
 #include "tnc_ui.hh"
@@ -204,16 +205,17 @@ static float clamp_arg_f(const char* flag, const char* value, float lo, float hi
 }
 
 void print_help(const char* prog) {
-    std::cerr << "MODEM73\n\n"
+    std::cerr << APP_VERSION_STRING "\n\n"
               << "Usage: " << prog << " [options]\n"
               << "\nGeneral:\n"
 #ifdef WITH_UI
               << "  -h, --headless          Run without the TUI\n"
 #endif
               << "  -v, --verbose           Verbose output\n"
+              << "      --version           Print the version and exit\n"
               << "      --debug             Log heard station IDs and population tracking\n"
               << "      --config [FILE]     Load options from FILE\n"
-              << "                          (defaults to ~/.config/modem73/settings)\n"
+              << "                          (defaults to ~" APP_CONFIG_SUBDIR "/settings)\n"
               << "      --list-audio        List available audio devices and exit\n"
 #ifdef WITH_CM108
               << "      --list-cm108        List CM108-compatible devices and exit\n"
@@ -330,11 +332,11 @@ void print_help(const char* prog) {
               << "\nTX blanking:\n"
               << "      --tx-blank          Suppress the decoder during TX (default always on with CSMA)\n"
               << "      --no-tx-blank       Disable TX blanking (only takes effect with --no-csma)\n"
-              << "\nSettings are saved to ~/.config/modem73/settings\n";
+              << "\nSettings are saved to ~" APP_CONFIG_SUBDIR "/settings\n";
 }
 
 int main(int argc, char** argv) {
-    std::cerr << "MODEM73 build " << __DATE__ << " " << __TIME__ << std::endl;
+    std::cerr << APP_VERSION_STRING " build " << __DATE__ << " " << __TIME__ << std::endl;
 
     TNCConfig config;
 
@@ -349,6 +351,9 @@ int main(int argc, char** argv) {
         
         if (arg == "--help") {
             print_help(argv[0]);
+            return 0;
+        } else if (arg == "--version") {
+            std::cout << APP_VERSION_STRING << "\n";
             return 0;
         } else if (arg == "--list-audio") {
             std::cout << "Input devices:\n";
@@ -421,7 +426,7 @@ int main(int argc, char** argv) {
             } else {
                 const char* home = getenv("HOME");
                 if (home) {
-                    config.config_file = std::string(home) + "/.config/modem73/settings";
+                    config.config_file = std::string(home) + APP_CONFIG_SUBDIR "/settings";
                 }
             }
         } else if ((arg == "-d" || arg == "--device") && i + 1 < argc) {
@@ -782,7 +787,7 @@ int main(int argc, char** argv) {
             settings_path = config.config_file;
         } else {
             const char* home = getenv("HOME");
-            if (home) settings_path = std::string(home) + "/.config/modem73/settings";
+            if (home) settings_path = std::string(home) + APP_CONFIG_SUBDIR "/settings";
         }
         if (!settings_path.empty()) {
             if (apply_settings_file(settings_path, config, cli_set)) {
@@ -801,7 +806,7 @@ int main(int argc, char** argv) {
         // Set up config file path
         const char* home = getenv("HOME");
         if (home) {
-            std::string config_dir = std::string(home) + "/.config/modem73";
+            std::string config_dir = std::string(home) + APP_CONFIG_SUBDIR;
             mkdir(config_dir.c_str(), 0755);
             ui_state.config_file = cli_config && !config.config_file.empty()
                                        ? config.config_file
