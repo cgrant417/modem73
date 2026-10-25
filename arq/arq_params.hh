@@ -49,8 +49,11 @@ inline std::vector<LadderStep> narrow_ladder() {
 // are 2.5 times shorter than narrow ones, so from QAM16 up it uses long frames to keep the
 // turnaround a smaller share of each cycle. Several steps share a payload size (QAM64 and
 // QAM256 at the same rate, long and normal frames); the receiver tells them apart by airtime.
-// min_snr_db: placeholders from the narrow ladder's calibration, interpolated for QAM64,
-// until the wide ladder is calibrated on the cable (design proposal 7.7).
+// min_snr_db is about 1 dB above where the step stops decoding every frame, measured as for
+// narrow (decoder mean S/N, cable recordings with added noise; design proposal 7.7):
+// BPSK and QPSK 1/2 below 3.3, then 4.8, 7.2, 10.4, 14.1, 17.4, 19.4, 23.1, 25.2 dB.
+// QAM1024 5/6 is at the cable's own limit (1 frame in 16 lost at about 32 dB), so it keeps
+// the narrow value. Not yet checked on air.
 inline std::vector<LadderStep> wide_ladder() {
     return {
         {{"BPSK 1/2 normal wide", 254, 1077}, -100},
@@ -62,7 +65,7 @@ inline std::vector<LadderStep> wide_ladder() {
         {{"QAM64 5/6 long wide", 6814, 2663}, 18},
         {{"QAM256 2/3 long wide", 5470, 1983}, 20},
         {{"QAM256 5/6 long wide", 6814, 1983}, 24},
-        {{"QAM1024 3/4 normal wide", 6142, 1643}, 27},
+        {{"QAM1024 3/4 normal wide", 6142, 1643}, 26},
         {{"QAM1024 5/6 normal wide", 6814, 1643}, 30},
     };
 }
