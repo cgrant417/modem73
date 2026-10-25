@@ -1,8 +1,10 @@
 #!/bin/bash
 # Start two modem73 instances in VARA host mode, joined by audio:
-#   station A: VARA ports 8400/8401, station B: 8410/8411, no PTT.
+#   station A: VARA ports 8400/8401, station B: 8410/8411.
 # Default audio is the ALSA loopback card (sudo modprobe snd-aloop): A plays into B's
-# capture and B into A's. Set CARD_A / CARD_B (e.g. plughw:2,0) to use real interfaces.
+# capture and B into A's. Set CARD_A / CARD_B (e.g. plughw:2,0) to use real interfaces,
+# and PTT_A / PTT_B to key radios (e.g. "--ptt com --com-port /dev/ttyUSB0"; default none).
+# CALL_A / CALL_B set each modem's PHY callsign (default N0AAA / N0BBB).
 # Then drive them with tools/vara_baseline.py --a 127.0.0.1:8400 --b 127.0.0.1:8410.
 #
 # Usage: tools/vara_pair.sh start|stop [extra modem73 options]
@@ -24,10 +26,11 @@ start)
     asoundrc plughw:Loopback,0,0 plughw:Loopback,0,1 > $WORK/A/.asoundrc
     asoundrc plughw:Loopback,1,1 plughw:Loopback,1,0 > $WORK/B/.asoundrc
   fi
-  for s in A:8400:N0AAA B:8410:N0BBB; do
+  for s in A:8400:${CALL_A:-N0AAA} B:8410:${CALL_B:-N0BBB}; do
     IFS=: read name port call <<< "$s"
+    ptt=PTT_$name; ptt=${!ptt:---ptt none}
     HOME=$WORK/$name setsid "$BIN" --headless --host vara --vara-port $port --control-port 0 \
-      --ptt none -c $call "$@" > $WORK/$name.log 2>&1 < /dev/null &
+      $ptt -c $call "$@" > $WORK/$name.log 2>&1 < /dev/null &
     echo $! > $WORK/$name.pid
   done
   sleep 3
