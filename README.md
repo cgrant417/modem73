@@ -10,7 +10,7 @@
 
 MODEM73 is an open source software modem that works with any HF, VHF, or UHF radio capable of 2400 Hz of bandwidth. All you need is a sound card and audio cable for your radio.  
 
-> **This is modem73fm**, a fork that adds a VARA-compatible host interface with ARQ, for Winlink software such as Pat and LinBPQ over FM. It builds as `modem73fm` and starts in VARA mode by default. See **[MODEM73FM.md](MODEM73FM.md)** for what differs, installation, and Pat and LinBPQ setup. The rest of this README is upstream's.
+> **This is modem73fm**, a fork that adds a VARA-compatible host interface with ARQ, for Winlink software such as Pat and LinBPQ over FM. In a narrow-to-narrow test (2.4 kHz audio through the radios' 9600 data ports), modem73fm ran faster than VARA FM narrow over the air on the test radios: 6.0 kbps against 4.8 kbps. modem73fm also has a wideband mode for higher speed over a 9600 data port; it is not yet available over a VARA connection, and its results are TBD. It builds as `modem73fm` and starts in VARA mode by default. See **[MODEM73FM.md](MODEM73FM.md)** for what differs, installation, and Pat and LinBPQ setup. The rest of this README is upstream's.
 
 ![Screenshot](https://i.ibb.co/4ZhhvcQs/Peek-2026-01-01-10-41.gif)
 <table align="center">
