@@ -284,7 +284,21 @@ public:
         bytes_ += queue_item_bytes(item);
         queue_.push(std::move(item));
     }
-    
+
+    // Queue several items at once, so a reader never sees only part of them
+    bool push_all(std::vector<T> items) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (queue_.size() + items.size() > 256) {
+            std::cerr << "TX queue full (256), dropping " << items.size() << " frames" << std::endl;
+            return false;
+        }
+        for (auto& item : items) {
+            bytes_ += queue_item_bytes(item);
+            queue_.push(std::move(item));
+        }
+        return true;
+    }
+
     bool pop(T& item) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (queue_.empty()) return false;
@@ -496,6 +510,8 @@ struct TxPacket {
     int64_t enqueue_ms;
     bool beacon = false;
     bool manual = false;
+    bool arq = false;        // ARQ frame (VARA host mode): the ARQ engine handles channel access
+    bool arq_more = false;   // more frames of the same ARQ burst follow; keep the radio keyed
     TxPacket() : oper_mode(-1), enqueue_ms(steady_now_ms()) {}
     TxPacket(std::vector<uint8_t> d, int mode = -1)
         : data(std::move(d)), oper_mode(mode), enqueue_ms(steady_now_ms()) {}

@@ -38,7 +38,7 @@ LDFLAGS += $(NCURSES_LIBS)
 TARGET = modem73
 
 SRCS = kiss_tnc.cc
-HDRS = kiss_tnc.hh kiss_tnc_impl.hh kiss_server.hh vara_server.hh rx_frame_info.hh tx_event.hh csma.hh tone_dcd.hh miniaudio_audio.hh rigctl_ptt.hh hamlib_ptt.hh modem.hh phy/mfsk_modem.hh phy/robust_modem.hh phy/common.hh tnc_ui.hh tnc_ui_state.hh control_port.hh
+HDRS = kiss_tnc.hh kiss_tnc_impl.hh kiss_server.hh vara_server.hh vara_host.hh arq/arq_session.hh arq/arq_frames.hh arq/arq_params.hh rx_frame_info.hh tx_event.hh csma.hh tone_dcd.hh miniaudio_audio.hh rigctl_ptt.hh hamlib_ptt.hh modem.hh phy/mfsk_modem.hh phy/robust_modem.hh phy/common.hh tnc_ui.hh tnc_ui_state.hh control_port.hh
 OBJS = deps/miniaudio.o deps/cJSON.o
 
 # defualt to build with UI, headless operations through --headless
@@ -73,7 +73,7 @@ else
     HAMLIB_FLAGS =
 endif
 
-.PHONY: all clean install debug help arq_test phy_test
+.PHONY: all clean install debug help arq_test phy_test vara_test
 
 all: $(TARGET)
 
@@ -93,7 +93,7 @@ ifneq ($(HIDAPI_LIBS),)
 endif
 
 clean:
-	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim tests/phy_jitter
+	rm -f $(TARGET) $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim tests/phy_jitter tests/vara_host_sim
 
 install: $(TARGET)
 	install -m 755 $(TARGET) /usr/local/bin/
@@ -142,6 +142,13 @@ tests/arq_sim: tests/arq_sim.cc $(ARQ_HDRS)
 
 arq_test: tests/arq_sim
 	./tests/arq_sim
+
+# VARA host protocol over the ARQ engine: two hosts driven like Pat, simulated channel
+tests/vara_host_sim: tests/vara_host_sim.cc vara_host.hh $(ARQ_HDRS)
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -o $@ tests/vara_host_sim.cc
+
+vara_test: tests/vara_host_sim
+	./tests/vara_host_sim
 
 # OFDM PHY through a simulated timing-jitter channel, or real hardware via --tx-wav/--rx-wav
 tests/phy_jitter: tests/phy_jitter.cc modem.hh phy/common.hh schmidl_cox.hh

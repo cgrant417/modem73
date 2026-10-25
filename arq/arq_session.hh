@@ -215,11 +215,16 @@ public:
         last_tx_ = Sent::OTHER;
     }
 
+    // A frame is being received right now (the demodulator is synced). Scheduled sends and
+    // reply timeouts wait until it ends: keying would destroy it, and it usually answers
+    // what we were waiting for. The caller caps how long a stuck detector can hold this.
+    void channel_busy(bool busy) { rx_busy_ = busy; }
+
     // ---- clock ----
 
     void tick(int64_t now) {
         // timeouts
-        if (wait_ != Wait::NONE && wait_ != Wait::IDLE && now >= wait_until_ && !tx_busy_) {
+        if (wait_ != Wait::NONE && wait_ != Wait::IDLE && now >= wait_until_ && !tx_busy_ && !rx_busy_) {
             Wait w = wait_;
             wait_ = Wait::NONE;
             on_wait_expired(w, now);
@@ -229,8 +234,8 @@ public:
             close("link failure: no frames from peer", now);
         }
         maybe_request_turn(now);
-        // one scheduled transmission per call when the radio is free
-        if (!tx_busy_) {
+        // one scheduled transmission per call when the radio and the channel are free
+        if (!tx_busy_ && !rx_busy_) {
             auto it = std::min_element(sched_.begin(), sched_.end(),
                                        [](const Sched& a, const Sched& b) { return a.at < b.at; });
             if (it != sched_.end() && it->at <= now) {
@@ -554,12 +559,22 @@ private:
         const int top = (int)ladder.size() - 1;
         if (burst_heard_ < burst_size_) {
             clean_bursts_ = 0;
+            had_loss_ = true;
             if (burst_heard_ * 2 < burst_size_) rx_step_ -= 2;
             else if (burst_snr_ < ladder[std::min(rx_step_, top)].min_snr_db) rx_step_ -= 1;
-        } else if (++clean_bursts_ >= p_.up_after_clean_bursts && rx_step_ < top &&
-                   burst_snr_ >= ladder[rx_step_ + 1].min_snr_db + p_.up_snr_margin_db) {
-            rx_step_++;
-            clean_bursts_ = 0;
+        } else {
+            ++clean_bursts_;
+            // highest step this burst's SNR supports
+            int target = rx_step_;
+            while (target < top && burst_snr_ >= ladder[target + 1].min_snr_db + p_.up_snr_margin_db)
+                ++target;
+            // Until a burst loses frames, jump straight there; after that, climb one step
+            // per up_after_clean_bursts clean bursts
+            int need = had_loss_ ? p_.up_after_clean_bursts : 1;
+            if (target > rx_step_ && clean_bursts_ >= need) {
+                rx_step_ = had_loss_ ? rx_step_ + 1 : target;
+                clean_bursts_ = 0;
+            }
         }
         rx_step_ = std::max(0, std::min(rx_step_, top));
     }
@@ -920,6 +935,7 @@ private:
         tx_cap_ = (int)p_.ladder_narrow.size() - 1;
         if (!p_.ladder_wide.empty()) tx_cap_ = std::max(tx_cap_, (int)p_.ladder_wide.size() - 1);
         clean_bursts_ = 0;
+        had_loss_ = false;
         burst_outstanding_ = false;
         idle_poll_ms_ = p_.idle_poll_min_ms;
         turn_req_at_ = 0;
@@ -994,6 +1010,7 @@ private:
     Wait wait_ = Wait::NONE;
     int64_t wait_until_ = 0;
     bool tx_busy_ = false;
+    bool rx_busy_ = false;           // channel_busy(): a frame is being received
     Sent last_tx_ = Sent::OTHER;
     int retries_ = 0;
     int connect_attempts_ = 0;
@@ -1035,6 +1052,7 @@ private:
     int8_t last_snr_ = 0;
     int rx_step_ = 1;
     int clean_bursts_ = 0;
+    bool had_loss_ = false;         // a burst this session lost frames: climb slowly
 
     // ISS AMC
     int tx_step_ = 1;

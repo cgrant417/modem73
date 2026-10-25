@@ -13,6 +13,8 @@
 #endif
 #include <vector>
 #include <list>
+#include <map>
+#include <sstream>
 #include <deque>
 #include <set>
 #include <mutex>
@@ -55,6 +57,7 @@
 #include "control_port.hh"
 #include "kiss_server.hh"
 #include "vara_server.hh"
+#include "vara_host.hh"
 #include "tx_event.hh"
 
 #ifdef WITH_UI
@@ -333,9 +336,10 @@ public:
         }
 #endif
         
-        if (config_.host_interface == HostInterface::VARA)
+        if (config_.host_interface == HostInterface::VARA) {
+            setup_vara_host();
             vara_server_.open(config_.vara_bind_address, config_.vara_port);
-        else
+        } else
             kiss_server_.open(config_.bind_address, config_.port);
 
         std::cerr << "Callsign: " << config_.callsign << std::endl;
@@ -421,10 +425,12 @@ public:
 
         // Main
         while (g_running) {
-            if (config_.host_interface == HostInterface::VARA)
+            if (config_.host_interface == HostInterface::VARA) {
                 vara_server_.poll();
-            else
+                run_arq_events();
+            } else {
                 kiss_server_.poll();
+            }
 
             int64_t audio_now_ms = steady_now_ms();
             if (audio_now_ms - last_audio_check_ms >= 1000) {
@@ -477,7 +483,148 @@ private:
         VARAServer::TNCInterface iface;
         iface.log = [](const std::string& msg) { ui_log(msg); };
         iface.client_count_changed = set_ui_client_count;
+        // These run on the main loop thread, which owns vara_host_
+        iface.command = [this](const std::string& line) {
+            if (vara_host_) vara_host_->command(line, steady_now_ms());
+        };
+        iface.data = [this](const std::vector<uint8_t>& d) {
+            if (vara_host_) vara_host_->data(d, steady_now_ms());
+        };
+        iface.host_changed = [this](bool up) {
+            if (!vara_host_) return;
+            if (up)
+                vara_host_->host_connected(steady_now_ms());
+            else
+                vara_host_->host_gone(steady_now_ms());
+        };
         return iface;
+    }
+
+    // ---- VARA host mode: the ARQ engine on the main loop thread ----
+    //
+    // The RX and TX threads hand decoded frames and key up/down to the main loop through
+    // arq_events_; the main loop feeds them, host commands and clock ticks to vara_host_.
+
+    struct ArqEvent {
+        enum Type { FRAME, KEYED, UNKEYED } type;
+        std::vector<uint8_t> bytes;
+        float snr = 0;
+        int air_ms = 0;
+        int64_t ms = 0;
+    };
+
+    void push_arq_event(ArqEvent::Type type, const std::vector<uint8_t>& bytes = {},
+                        float snr = 0, int air_ms = 0) {
+        std::lock_guard<std::mutex> lock(arq_events_mutex_);
+        arq_events_.push_back({type, bytes, snr, air_ms, steady_now_ms()});
+    }
+
+    void run_arq_events() {
+        // Read the carrier detect before taking the events: a frame's decode is queued
+        // before its carrier detect drops, so it is never missed when busy ends
+        int64_t now = steady_now_ms();
+        bool dcd = rx_dcd_.load();
+        if (!dcd)
+            arq_busy_since_ = -1;
+        else if (arq_busy_since_ < 0)
+            arq_busy_since_ = now;
+        // longer than any frame: a stuck detector must not stall the link
+        vara_host_->channel_busy(dcd && now - arq_busy_since_ < ARQ_MAX_BUSY_MS);
+
+        std::deque<ArqEvent> evs;
+        {
+            std::lock_guard<std::mutex> lock(arq_events_mutex_);
+            evs.swap(arq_events_);
+        }
+        for (const auto& e : evs) {
+            switch (e.type) {
+            case ArqEvent::FRAME: vara_host_->frame_received(e.bytes, e.snr, e.air_ms, e.ms); break;
+            case ArqEvent::KEYED: vara_host_->keyed(e.ms); break;
+            case ArqEvent::UNKEYED: vara_host_->unkeyed(e.ms); break;
+            }
+        }
+        vara_host_->tick(steady_now_ms());
+    }
+
+    // "QPSK 1/2 normal" -> OFDM operating-mode byte, or -1
+    static int arq_oper_mode(const std::string& name) {
+        std::istringstream in(name);
+        std::string mod, rate, size;
+        in >> mod >> rate >> size;
+        int fs = size == "short" ? 0 : size == "normal" ? 1 : size == "long" ? 2 : -1;
+        return fs < 0 ? -1 : ModemConfig::encode_mode(mod.c_str(), rate.c_str(), fs);
+    }
+
+    // Fill in a mode's real payload and airtime from the encoder; false if unusable
+    bool arq_measure_mode(arq::ModeDesc& m) {
+        int om = arq_oper_mode(m.name);
+        if (om < 0) return false;
+        int cap = encoder_->get_payload_size(om);
+        if (cap <= 2) return false;
+        std::vector<uint8_t> dummy(cap - 2, 0x55);
+        auto framed = frame_with_length(dummy);
+        auto samples = encoder_->encode(framed.data(), framed.size(), modem_config_.center_freq,
+                                        modem_config_.call_sign, om, config_.postamble);
+        if (samples.empty()) return false;
+        m.payload = cap - 2;
+        m.air_ms = (int)(1000.0 * samples.size() / config_.sample_rate);
+        arq_modes_[m.name] = om;
+        arq_air_[om] = m.air_ms;
+        return true;
+    }
+
+    int arq_air_ms(int oper_mode) const {
+        auto it = arq_air_.find(oper_mode);
+        return it == arq_air_.end() ? 0 : it->second;
+    }
+
+    void setup_vara_host() {
+        if (config_.modem_type != 0)
+            throw std::runtime_error("VARA host mode needs the OFDM modem (not MFSK or ROBUST)");
+        arq::Params p;
+        p.key_lead_ms = config_.ptt_delay_ms + tx_lead_ms();
+        p.key_tail_ms = config_.ptt_tail_ms;
+        if (!arq_measure_mode(p.connect_mode) || !arq_measure_mode(p.control_mode))
+            throw std::runtime_error("ARQ: connect/control modes are not available");
+        std::vector<arq::LadderStep> ladder;
+        for (auto step : p.ladder_narrow) {
+            if (arq_measure_mode(step.mode))
+                ladder.push_back(step);
+            else
+                ui_log("(!) ARQ: ladder mode " + step.mode.name + " not available, skipped");
+        }
+        if (ladder.empty())
+            throw std::runtime_error("ARQ: no usable ladder modes");
+        p.ladder_narrow = ladder;
+        p.start_step = std::min(p.start_step, (int)ladder.size() - 1);
+        std::cerr << "ARQ: narrow ladder";
+        for (const auto& s : ladder)
+            std::cerr << " | " << s.mode.name << " " << s.mode.payload << " B " << s.mode.air_ms << " ms";
+        std::cerr << std::endl;
+
+        VaraHost::Radio radio;
+        radio.transmit = [this](const std::vector<std::vector<uint8_t>>& frames,
+                                const arq::ModeDesc& mode, bool /*contend*/) {
+            auto it = arq_modes_.find(mode.name);
+            if (it == arq_modes_.end()) {
+                ui_log("(!) ARQ: no operating mode for " + mode.name);
+                return;
+            }
+            std::vector<TxPacket> pkts;
+            for (size_t i = 0; i < frames.size(); ++i) {
+                TxPacket pkt(frames[i], it->second);
+                pkt.arq = true;
+                pkt.arq_more = i + 1 < frames.size();
+                pkts.push_back(std::move(pkt));
+            }
+            tx_queue_.push_all(std::move(pkts));
+        };
+        VaraHost::Host host;
+        host.send_line = [this](const std::string& line) { vara_server_.send_line(line); };
+        host.send_data = [this](const std::vector<uint8_t>& d) { vara_server_.send_data(d); };
+        host.log = [](const std::string& msg) { ui_log(msg); };
+        vara_host_ = std::make_unique<VaraHost>(p, std::move(radio), std::move(host));
+        vara_server_.verbose = g_verbose;
     }
 
     KISSServer::TNCInterface make_kiss_iface() {
@@ -618,7 +765,9 @@ private:
                         }
                     }
                 }
-                if (csma_enabled) {
+                // ARQ frames go straight out: the engine already waited its turnaround guard
+                // (in-session channel access is Phase 7)
+                if (csma_enabled && !pkt.arq) {
                     // Wait for TX lockout to clear
                     if (!is_tx_allowed()) {
                         std::cerr << "TX: Waiting for lockout to clear..." << std::endl;
@@ -854,7 +1003,9 @@ private:
                 int remaining = cur.beacon ? 0 : csma_burst - 1;
                 while (true) {
                     TxPacket next;
-                    bool have_next = remaining > 0 && tx_queue_.pop(next);
+                    // An ARQ burst ends exactly where the engine ended it
+                    bool have_next = cur.arq ? cur.arq_more && tx_queue_.pop(next)
+                                             : remaining > 0 && tx_queue_.pop(next);
                     if (have_next)
                         tx_inflight_bytes_ += next.data.size();
 #ifdef WITH_UI
@@ -1256,6 +1407,8 @@ private:
     }
 
     void emit_tx_event(TxEvent::Type type, size_t bytes = 0, bool ok = true, bool beacon = false) {
+        if (vara_host_ && !beacon && type != TxEvent::Type::FRAME_DONE)
+            push_arq_event(type == TxEvent::Type::KEYED ? ArqEvent::KEYED : ArqEvent::UNKEYED);
         if (!tx_event_callback) return;
         TxEvent ev;
         ev.type = type;
@@ -1380,6 +1533,8 @@ private:
 
             if (config_.host_interface == HostInterface::KISS)
                 kiss_server_.send_frame(payload);
+            else if (vara_host_ && info.modem == "ofdm")
+                push_arq_event(ArqEvent::FRAME, payload, snr, arq_air_ms(info.oper_mode));
         };
         
         auto ofdm_info = [this]() {
@@ -1629,6 +1784,7 @@ private:
                 if (blanking) {
                     was_blanking = true;
                     dcd_active_ = false;
+                    rx_dcd_.store(false);
                 } else {
                     if (decoder_reconfig_pending_.exchange(false)) {
                         int cf;
@@ -1741,6 +1897,7 @@ private:
                                     robust_decoder_n_->carrier_active())) ||
                                   (sync_only &&
                                    tnow < tone_hold_until_ms_);
+                    rx_dcd_.store(dcd_active_);
                     if (dcd_active_) {
                         if (tnow - last_dcd_ms_ > 1500 &&
                             tnow - last_id_ms_ > 2500 &&
@@ -1989,7 +2146,14 @@ private:
     
     KISSServer kiss_server_;
     VARAServer vara_server_;
-    
+    std::unique_ptr<VaraHost> vara_host_;            // VARA host mode only; main loop thread
+    std::mutex arq_events_mutex_;
+    std::deque<ArqEvent> arq_events_;
+    std::map<std::string, int> arq_modes_;           // ARQ mode name -> OFDM operating mode
+    std::map<int, int> arq_air_;                     // OFDM operating mode -> airtime (ms)
+    int64_t arq_busy_since_ = -1;                    // carrier detect on since (main loop)
+    static constexpr int64_t ARQ_MAX_BUSY_MS = 8000;
+
     PacketQueue<TxPacket> tx_queue_;
     std::atomic<size_t> tx_inflight_bytes_{0};  // popped by the TX loop, not yet sent
     std::atomic<bool> tx_keyed_{false};          // between KEYED and UNKEYED events
@@ -2117,6 +2281,7 @@ private:
     std::atomic<int> occupancy_pct_{0};
     int64_t occ_last_ms_ = 0;
     bool dcd_active_ = false;
+    std::atomic<bool> rx_dcd_{false};               // dcd_active_, for the main loop (VARA host mode)
     std::atomic<bool> alc_tune_active_{false};
 
     std::mutex ptt_mutex_;

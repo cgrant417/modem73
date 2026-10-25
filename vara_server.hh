@@ -23,15 +23,16 @@
 
 // VARA-compatible host interface: an ASCII command socket on vara_port and a
 // byte-stream data socket on vara_port + 1, each serving a single host (as VARA does).
-// Polled from the TNC main loop.
-//
-// Phase 3 (startup selection): listens and logs what the host sends. Commands are
-// not answered and data is not transmitted yet; that arrives with the ARQ engine.
+// Polled from the TNC main loop. Commands and data are handed to the TNC after the
+// socket lock is released, so its handlers may call send_line() / send_data().
 class VARAServer {
 public:
     struct TNCInterface {
         std::function<void(const std::string&)> log;
         std::function<void(size_t)> client_count_changed;
+        std::function<void(const std::string& line)> command;          // one line, without CR/LF
+        std::function<void(const std::vector<uint8_t>&)> data;          // bytes from the host
+        std::function<void(bool connected)> host_changed;               // command port host came or went
     };
 
     explicit VARAServer(TNCInterface iface) : iface_(std::move(iface)) {}
@@ -51,32 +52,73 @@ public:
         }
         std::cerr << "VARA host interface listening on " << bind_address << ":" << port
                   << " (command) and " << bind_address << ":" << port + 1 << " (data)" << std::endl;
-        std::cerr << "(!) VARA host interface: commands are logged but not yet handled" << std::endl;
     }
 
     void poll() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        accept_one(cmd_, "command");
-        accept_one(data_, "data");
+        std::vector<std::string> lines;
+        std::vector<uint8_t> data;
+        std::vector<bool> host_changes;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (accept_one(cmd_, "command")) host_changes.push_back(true);
+            accept_one(data_, "data");
 
-        uint8_t buf[4096];
-        ssize_t n;
-        while (cmd_.fd >= 0 && (n = read_some(cmd_, buf, sizeof(buf), "command")) > 0) {
-            cmd_buf_.append(reinterpret_cast<char*>(buf), n);
-            size_t eol;
-            while ((eol = cmd_buf_.find_first_of("\r\n")) != std::string::npos) {
-                std::string line = cmd_buf_.substr(0, eol);
-                cmd_buf_.erase(0, eol + 1);
-                if (!line.empty())
-                    log("VARA: host command '" + line + "' (not handled yet)");
+            uint8_t buf[4096];
+            ssize_t n;
+            bool gone = false;
+            while (cmd_.fd >= 0 && (n = read_some(cmd_, buf, sizeof(buf), "command", gone)) > 0) {
+                cmd_buf_.append(reinterpret_cast<char*>(buf), n);
+                size_t eol;
+                while ((eol = cmd_buf_.find_first_of("\r\n")) != std::string::npos) {
+                    std::string line = cmd_buf_.substr(0, eol);
+                    cmd_buf_.erase(0, eol + 1);
+                    if (!line.empty())
+                        lines.push_back(line);
+                }
+                if (cmd_buf_.size() > MAX_CMD_LINE) {
+                    log("VARA: command line too long, discarded");
+                    cmd_buf_.clear();
+                }
             }
-            if (cmd_buf_.size() > MAX_CMD_LINE) {
-                log("VARA: command line too long, discarded");
-                cmd_buf_.clear();
+            if (gone) host_changes.push_back(false);
+            bool data_gone = false;
+            while (data_.fd >= 0 && (n = read_some(data_, buf, sizeof(buf), "data", data_gone)) > 0)
+                data.insert(data.end(), buf, buf + n);
+            flush_pending(cmd_, cmd_out_);
+            flush_pending(data_, data_out_);
+            if (pending_host_gone_) {   // a failed write dropped the command host
+                pending_host_gone_ = false;
+                host_changes.push_back(false);
             }
         }
-        while (data_.fd >= 0 && (n = read_some(data_, buf, sizeof(buf), "data")) > 0)
-            log("VARA: " + std::to_string(n) + " data bytes from host (not transmitted yet)");
+        for (bool up : host_changes)
+            if (iface_.host_changed) iface_.host_changed(up);
+        for (const auto& line : lines) {
+            if (verbose) log("VARA: host> " + line);
+            if (iface_.command) iface_.command(line);
+        }
+        if (!data.empty() && iface_.data) iface_.data(data);
+    }
+
+    // A reply or notification to the command-port host (CR is added)
+    void send_line(const std::string& line) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (verbose) log("VARA: host< " + line);
+        if (cmd_.fd < 0) return;
+        cmd_out_.insert(cmd_out_.end(), line.begin(), line.end());
+        cmd_out_.push_back('\r');
+        flush_pending(cmd_, cmd_out_);
+    }
+
+    // Received payload bytes for the data-port host
+    void send_data(const std::vector<uint8_t>& bytes) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (data_.fd < 0) {
+            log("VARA: no host on the data port, " + std::to_string(bytes.size()) + " bytes dropped");
+            return;
+        }
+        data_out_.insert(data_out_.end(), bytes.begin(), bytes.end());
+        flush_pending(data_, data_out_);
     }
 
     size_t client_count() const {
@@ -91,7 +133,11 @@ public:
             if (s->listen_fd >= 0) { close(s->listen_fd); s->listen_fd = -1; }
         }
         cmd_buf_.clear();
+        cmd_out_.clear();
+        data_out_.clear();
     }
+
+    bool verbose = false;   // log every command and reply
 
 private:
     struct Socket {
@@ -128,18 +174,18 @@ private:
         return fd;
     }
 
-    // Called with mutex_ held
-    void accept_one(Socket& s, const char* name) {
-        if (s.listen_fd < 0) return;
+    // Called with mutex_ held. Returns true if a host was accepted.
+    bool accept_one(Socket& s, const char* name) {
+        if (s.listen_fd < 0) return false;
         struct sockaddr_in addr;
         socklen_t len = sizeof(addr);
         int fd = accept(s.listen_fd, (struct sockaddr*)&addr, &len);
-        if (fd < 0) return;
+        if (fd < 0) return false;
 
         if (s.fd >= 0) {
             log(std::string("VARA: ") + name + " port already has a host, rejecting connection");
             close(fd);
-            return;
+            return false;
         }
         int flag = 1;
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
@@ -151,22 +197,48 @@ private:
         log(std::string("VARA: host connected to ") + name + " port from " + ip_str + ":" +
             std::to_string(ntohs(addr.sin_port)));
         if (&s == &cmd_) client_count_changed();
+        return true;
     }
 
-    // Called with mutex_ held. Returns bytes read, 0 if nothing pending or the host left.
-    ssize_t read_some(Socket& s, uint8_t* buf, size_t len, const char* name) {
+    // Called with mutex_ held. Returns bytes read, 0 if nothing pending or the host left
+    // (then `gone` is set).
+    ssize_t read_some(Socket& s, uint8_t* buf, size_t len, const char* name, bool& gone) {
         ssize_t n = recv(s.fd, buf, len, MSG_DONTWAIT);
         if (n > 0) return n;
-        if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
-            log(std::string("VARA: host disconnected from ") + name + " port");
-            close(s.fd);
-            s.fd = -1;
-            if (&s == &cmd_) {
-                cmd_buf_.clear();
-                client_count_changed();
-            }
-        }
+        if (n == 0 || (errno != EAGAIN && errno != EWOULDBLOCK))
+            drop(s, name, gone);
         return 0;
+    }
+
+    // Called with mutex_ held: write what the socket takes now, keep the rest
+    void flush_pending(Socket& s, std::vector<uint8_t>& out) {
+        while (s.fd >= 0 && !out.empty()) {
+            ssize_t n = ::send(s.fd, out.data(), out.size(), MSG_NOSIGNAL | MSG_DONTWAIT);
+            if (n > 0) {
+                out.erase(out.begin(), out.begin() + n);
+                continue;
+            }
+            if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+            bool gone = false;
+            drop(s, &s == &cmd_ ? "command" : "data", gone);
+            if (gone) pending_host_gone_ = true;
+        }
+        if (s.fd < 0) out.clear();
+    }
+
+    // Called with mutex_ held
+    void drop(Socket& s, const char* name, bool& gone) {
+        log(std::string("VARA: host disconnected from ") + name + " port");
+        close(s.fd);
+        s.fd = -1;
+        if (&s == &cmd_) {
+            cmd_buf_.clear();
+            cmd_out_.clear();
+            client_count_changed();
+            gone = true;
+        } else {
+            data_out_.clear();
+        }
     }
 
     void log(const std::string& msg) {
@@ -183,5 +255,8 @@ private:
     Socket cmd_;
     Socket data_;
     std::string cmd_buf_;
+    std::vector<uint8_t> cmd_out_;
+    std::vector<uint8_t> data_out_;
+    bool pending_host_gone_ = false;
     mutable std::mutex mutex_;
 };

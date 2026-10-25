@@ -71,7 +71,7 @@ struct Params {
     std::vector<LadderStep> ladder_narrow = narrow_ladder();
     std::vector<LadderStep> ladder_wide;   // defined in Phase 5 from measured wide modes
     int start_step = 1;
-    int up_after_clean_bursts = 3;
+    int up_after_clean_bursts = 3;    // after a lossy burst; before any loss one clean burst may jump to the SNR's step
     int up_snr_margin_db = 3;
 
     uint8_t bw_offer = BW_NARROW;     // bandwidth classes offered/accepted (host BW command)

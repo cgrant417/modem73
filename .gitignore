@@ -23,3 +23,5 @@ __pycache__
 audio_samples/
 modem73_sample.wav
 tests/arq_sim
+tests/vara_host_sim
+tests/phy_jitter
