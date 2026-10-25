@@ -23,7 +23,7 @@ else
     exit 1
 fi
 
-REPO_URL="https://github.com/cgrant417/modem73.git"
+REPO_URL="https://github.com/cgrant417/modem73fm.git"
 BRANCH="modem73fm"
 
 # Build in the checkout this script came from; run on its own, clone modem73fm here

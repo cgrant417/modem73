@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
 # modem73fm update script
-# https://github.com/cgrant417/modem73 (branch modem73fm)
+# https://github.com/cgrant417/modem73fm
 #
 
 set -e
 
-REPO_URL="https://github.com/cgrant417/modem73.git"
+REPO_URL="https://github.com/cgrant417/modem73fm.git"
 INSTALL_DIR="${MODEM73FM_DIR:-$HOME/modem73fm}"
 BRANCH="${MODEM73FM_BRANCH:-modem73fm}"
 
@@ -59,7 +59,8 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     # below would switch branches and could discard work
     ORIGIN=$(git remote get-url origin 2>/dev/null || true)
     case "$ORIGIN" in
-        *cgrant417/modem73|*cgrant417/modem73.git) ;;
+        # the repository was renamed from modem73; GitHub redirects the old name
+        *cgrant417/modem73fm|*cgrant417/modem73fm.git|*cgrant417/modem73|*cgrant417/modem73.git) ;;
         *) error "$INSTALL_DIR has origin '$ORIGIN', not the modem73fm fork; refusing to update it. Set MODEM73FM_DIR to a modem73fm checkout." ;;
     esac
 

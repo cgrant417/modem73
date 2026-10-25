@@ -114,7 +114,7 @@ sudo apt install libhidapi-dev
 ```
 # Clone modem73fm (this fork's modem73fm branch)
 
-git clone https://github.com/cgrant417/modem73 modem73fm
+git clone https://github.com/cgrant417/modem73fm modem73fm
 
 # Build
 

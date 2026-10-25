@@ -24,7 +24,7 @@ On a Debian, Ubuntu or Arch system, the installer fetches the build dependencies
 
 ```
 sudo apt install git          # or: sudo pacman -S git
-git clone https://github.com/cgrant417/modem73 modem73fm
+git clone https://github.com/cgrant417/modem73fm modem73fm
 cd modem73fm
 ./install.sh
 ```
@@ -35,7 +35,7 @@ Or build by hand:
 
 ```
 sudo apt install git build-essential libncurses-dev pkg-config   # plus libhamlib-dev, libhidapi-dev if wanted
-git clone https://github.com/cgrant417/modem73 modem73fm
+git clone https://github.com/cgrant417/modem73fm modem73fm
 cd modem73fm
 make
 sudo make install        # optional; sudo make uninstall removes it again
