@@ -134,7 +134,6 @@ public:
             snprintf(buf, sizeof buf, "SN %.1f", snr);
             reply(buf);
         }
-        report_bitrate();
     }
 
     // Channel busy (a frame is being received): holds the engine's sends and timeouts,
@@ -150,12 +149,15 @@ public:
     void keyed(int64_t now) {
         reply("PTT ON");
         link_.tx_event(arq::TxEventType::KEYED, now);
+        // the sending side reports the step it is sending at
+        if (link_.is_iss()) report_bitrate();
     }
 
     void unkeyed(int64_t now) {
         reply("PTT OFF");
         link_.tx_event(arq::TxEventType::UNKEYED, now);
-        report_bitrate();
+        // the receiving side reports the step its ACK just asked for
+        if (!link_.is_iss()) report_bitrate();
     }
 
     void tick(int64_t now) {
@@ -195,7 +197,8 @@ private:
         }
     }
 
-    // BITRATE (level) bps, sent when the speed level in use changes
+    // BITRATE (level) bps, sent when the speed level changes. The receiving side only knows
+    // a step once it has measured a burst, so each side reports what it controls.
     void report_bitrate() {
         if (link_.state() != arq::State::CONNECTED) return;
         int step = link_.is_iss() ? link_.tx_step() : link_.rx_step();

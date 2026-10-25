@@ -61,7 +61,8 @@ struct Params {
     int last_session_hold_ms = 30000; // keep answering a closed session's DISC this long
 
     // Data flow (Section 8.3, 8.6)
-    int burst_max = 4;                // B, 1..8
+    int burst_max = 8;                // B, 1..8
+    int burst_air_max_ms = 24000;     // a burst holds at most this much frame airtime
     int window_bytes = 64 * 1024;     // W
     int turn_fairness_bursts = 4;
 

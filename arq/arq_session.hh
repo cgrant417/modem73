@@ -399,13 +399,15 @@ private:
         tx_step_ = std::max(0, std::min(tx_step_, (int)ladder.size() - 1));
         const ModeDesc& mode = ladder[tx_step_].mode;
         const uint32_t cap = (uint32_t)std::max<int>(1, mode.payload - (int)DATA_HEADER_SIZE);
+        // the negotiated burst size, cut so one keying stays within burst_air_max_ms
+        const int frames = std::max(1, std::min(burst_, mode.air_ms > 0 ? p_.burst_air_max_ms / mode.air_ms : burst_));
         std::vector<Range> segs;
         for (const auto& r : lost)
-            for (uint32_t s = r.first; s < r.second && (int)segs.size() < burst_; s += cap)
+            for (uint32_t s = r.first; s < r.second && (int)segs.size() < frames; s += cap)
                 segs.push_back({s, std::min(r.second, s + cap)});
         uint32_t limit = std::min<uint32_t>(tx_end(), tx_base_ + (uint32_t)p_.window_bytes);
         uint32_t s = tx_next_;
-        while ((int)segs.size() < burst_ && s < limit) {
+        while ((int)segs.size() < frames && s < limit) {
             uint32_t e = std::min(limit, s + cap);
             segs.push_back({s, e});
             s = e;
@@ -478,8 +480,16 @@ private:
             burst_heard_ = 0;
             burst_size_ = ((f.flags >> DATA_BURST_SHIFT) & 0x07) + 1;
             burst_snr_ = snr;
+            burst_step_ = -1;
             burst_new_ = false;
         }
+        // A full frame's size names its step; a short last segment matches none
+        const auto& ladder = p_.ladder(bw_);
+        for (int i = (int)ladder.size() - 1; i >= 0; --i)
+            if (f.payload.size() + DATA_HEADER_SIZE == (size_t)ladder[i].mode.payload) {
+                burst_step_ = std::max(burst_step_, i);
+                break;
+            }
         burst_heard_++;
         burst_size_ = std::max(burst_size_, ((f.flags >> DATA_BURST_SHIFT) & 0x07) + 1);
         burst_snr_ = std::min(burst_snr_, snr);
@@ -557,6 +567,9 @@ private:
         last_burst_dup_ = !burst_new_;
         const auto& ladder = p_.ladder(bw_);
         const int top = (int)ladder.size() - 1;
+        // Judge from the step the burst was sent at: our last suggestion can be stale,
+        // since a new ISS starts from its own measurement of our signal
+        if (burst_step_ >= 0) rx_step_ = std::min(burst_step_, top);
         if (burst_heard_ < burst_size_) {
             clean_bursts_ = 0;
             had_loss_ = true;
@@ -1046,6 +1059,7 @@ private:
     int burst_heard_ = 0;
     int burst_size_ = 0;
     float burst_snr_ = 0;
+    int burst_step_ = -1;             // step the ISS sent this burst at, from full frames' size
     bool burst_new_ = false;
     int8_t last_burst_snr_ = 0;
     bool last_burst_dup_ = false;
