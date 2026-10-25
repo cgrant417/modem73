@@ -23,22 +23,25 @@ constexpr uint8_t BW_MASK = 0x03;
 
 struct LadderStep {
     ModeDesc mode;
-    int min_snr_db;      // lowest SNR this step is used at (placeholder until Phase 8 calibration)
+    int min_snr_db;      // lowest burst-mean S/N (the decoder's estimate) this step is used at
 };
 
-// Narrow (2.4 kHz) ladder, Section 8.8; payload/airtime measured in Section 8.1
+// Narrow (2.4 kHz) ladder, Section 8.8; payload/airtime measured in Section 8.1.
+// min_snr_db is about 1 dB above where the step stops decoding every frame, measured as
+// the decoder's mean S/N on cable recordings with added noise (design proposal 7.8):
+// 1.9, 2.6, 4.8, 7.1, 10.3, 19.1, 22.9, 25.6, 27.8 dB. Not yet checked on air.
 inline std::vector<LadderStep> narrow_ladder() {
     return {
         {{"BPSK 1/2 normal", 254, 2733}, -100},
-        {{"QPSK 1/2 normal", 510, 2733}, 6},
-        {{"QPSK 3/4 normal", 766, 2733}, 9},
-        {{"QAM16 1/2 normal", 1022, 2733}, 12},
-        {{"QAM16 3/4 normal", 1534, 2733}, 16},
-        {{"QAM256 2/3 normal", 2734, 2733}, 22},
-        {{"QAM256 5/6 normal", 3406, 2733}, 26},
-        // Clean on a Digirig-to-Digirig cable (about 35 dB, Section 7.2); thresholds unverified on air
-        {{"QAM1024 3/4 normal", 6142, 4100}, 30},
-        {{"QAM1024 5/6 normal", 6814, 4100}, 33},
+        {{"QPSK 1/2 normal", 510, 2733}, 4},
+        {{"QPSK 3/4 normal", 766, 2733}, 6},
+        {{"QAM16 1/2 normal", 1022, 2733}, 8},
+        {{"QAM16 3/4 normal", 1534, 2733}, 11},
+        {{"QAM256 2/3 normal", 2734, 2733}, 20},
+        {{"QAM256 5/6 normal", 3406, 2733}, 24},
+        {{"QAM1024 3/4 normal", 6142, 4100}, 27},
+        // 2 dB above its edge: on the cable alone (about 29 dB) it lost 1-2 frames in 8
+        {{"QAM1024 5/6 normal", 6814, 4100}, 30},
     };
 }
 
@@ -73,7 +76,7 @@ struct Params {
     std::vector<LadderStep> ladder_wide;   // defined in Phase 5 from measured wide modes
     int start_step = 1;
     int up_after_clean_bursts = 3;    // after a lossy burst; before any loss one clean burst may jump to the SNR's step
-    int up_snr_margin_db = 3;
+    int up_snr_margin_db = 2;
 
     uint8_t bw_offer = BW_NARROW;     // bandwidth classes offered/accepted (host BW command)
 

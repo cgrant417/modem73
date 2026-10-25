@@ -25,6 +25,7 @@
 //   --center HZ                centre frequency (default: 1500, or 300 Hz above the lowest
 //                              tone for layouts wider than 2400 Hz, i.e. 3300 for wide)
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -41,6 +42,7 @@ struct Args {
     std::string trace;
     double trace_start = 0, sine_amp_us = 0, sine_hz = 0, ppm = 0, snr = 40;
     double step_us = 0, step_every = 0;
+    double add_snr = 1e9;   // with --rx-wav: add noise at this full-band S/N to the recording
     int center = 0;
     int frames = 20;
     unsigned seed = 1;
@@ -115,6 +117,7 @@ int main(int argc, char** argv) {
         else if (k == "--ppm") a.ppm = atof(next());
         else if (k == "--step") { if (sscanf(next(), "%lf,%lf", &a.step_us, &a.step_every) != 2) return 2; }
         else if (k == "--snr") a.snr = atof(next());
+        else if (k == "--add-snr") a.add_snr = atof(next());
         else if (k == "--frames") a.frames = atoi(next());
         else if (k == "--seed") a.seed = (unsigned)atoi(next());
         else if (k == "--hash") a.hash_only = true;
@@ -213,6 +216,22 @@ int run(const Args& a) {
     std::normal_distribution<double> gauss(0.0, std::sqrt(sig_pow / std::pow(10.0, a.snr / 10)));
     std::vector<float> rx(a.rx_wav.empty() ? tx.size() : 0);
     if (!a.rx_wav.empty() && !read_wav(a.rx_wav, rx)) { fprintf(stderr, "cannot read %s\n", a.rx_wav.c_str()); return 2; }
+    if (!a.rx_wav.empty() && a.add_snr < 1e8) {
+        // signal power over the recording's active 10 ms blocks (within 20 dB of the loudest)
+        const size_t blk = RATE / 100;
+        std::vector<double> bp;
+        for (size_t i = 0; i + blk <= rx.size(); i += blk) {
+            double p = 0;
+            for (size_t j = i; j < i + blk; ++j) p += (double)rx[j] * rx[j];
+            bp.push_back(p / blk);
+        }
+        double top = bp.empty() ? 0 : *std::max_element(bp.begin(), bp.end()), sum = 0;
+        int n = 0;
+        for (double p : bp)
+            if (p > top / 100) { sum += p; ++n; }
+        std::normal_distribution<double> g(0.0, std::sqrt((n ? sum / n : 0) / std::pow(10.0, a.add_snr / 10)));
+        for (auto& v : rx) v = (float)(v + g(rng));
+    }
     for (size_t n = 0; a.rx_wav.empty() && n < rx.size(); ++n) {
         double t = (double)n / RATE;
         double x = n - tau_s(t) * RATE;
@@ -229,11 +248,15 @@ int run(const Args& a) {
     auto dec = std::make_unique<Decoder>();
     dec->configure_frontend(center, true);
     int good = 0, other = 0;
+    double snr_sum = 0, snr_min = 1e9;   // the decoder's own estimate, over intact frames
     std::vector<bool> got(sent.size(), false);
     auto cb = [&](const uint8_t* d, size_t len) {
         for (size_t f = 0; f < sent.size(); ++f)
             if (!got[f] && len >= sent[f].size() && !memcmp(d, sent[f].data(), sent[f].size())) {
-                got[f] = true; ++good; return;
+                got[f] = true; ++good;
+                double s = dec->get_last_snr();
+                snr_sum += s; snr_min = std::min(snr_min, s);
+                return;
             }
         ++other;
     };
@@ -243,5 +266,7 @@ int run(const Args& a) {
     printf("%-6s %-22s snr %4.0f dB  %3d/%d frames intact  %d other  (payload %d B, %.2f s/frame)\n",
            a.profile.c_str(), a.mode.c_str(), a.snr, good, a.frames, other, payload,
            (double)(tx.size() - RATE / 2 - RATE) / RATE / a.frames - 0.3);
+    if (good)
+        printf("       decoder snr mean %.1f min %.1f dB\n", snr_sum / good, snr_min);
     return good == a.frames ? 0 : 1;
 }

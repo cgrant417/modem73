@@ -479,7 +479,7 @@ private:
             in_burst_ = true;
             burst_heard_ = 0;
             burst_size_ = ((f.flags >> DATA_BURST_SHIFT) & 0x07) + 1;
-            burst_snr_ = snr;
+            burst_snr_sum_ = 0;
             burst_step_ = -1;
             burst_new_ = false;
         }
@@ -492,7 +492,10 @@ private:
             }
         burst_heard_++;
         burst_size_ = std::max(burst_size_, ((f.flags >> DATA_BURST_SHIFT) & 0x07) + 1);
-        burst_snr_ = std::min(burst_snr_, snr);
+        // the mean of the frames' S/N: per-frame readings scatter by several dB on a
+        // clean channel, so the minimum of a long burst mostly measures that scatter
+        burst_snr_sum_ += snr;
+        burst_snr_ = burst_snr_sum_ / burst_heard_;
         if (store_rx(f.offset, f.payload)) burst_new_ = true;
         deliver_rx();
         if ((f.flags & DATA_LAST) || f.remaining == 0) {
@@ -1058,7 +1061,8 @@ private:
     bool in_burst_ = false;
     int burst_heard_ = 0;
     int burst_size_ = 0;
-    float burst_snr_ = 0;
+    float burst_snr_ = 0;             // mean S/N of the burst's frames
+    float burst_snr_sum_ = 0;
     int burst_step_ = -1;             // step the ISS sent this burst at, from full frames' size
     bool burst_new_ = false;
     int8_t last_burst_snr_ = 0;
