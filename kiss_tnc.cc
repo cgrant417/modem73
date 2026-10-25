@@ -222,7 +222,7 @@ void print_help(const char* prog) {
 #endif
               << "      --help              Show this help\n"
               << "\nNetwork:\n"
-              << "      --host IFACE        Host interface: kiss or vara (default: kiss)\n"
+              << "      --host IFACE        Host interface: vara or kiss (default: vara)\n"
               << "  -p, --port PORT         KISS TCP port (default: 8001)\n"
               << "      --bind ADDR         KISS bind address (default: 0.0.0.0)\n"
               << "      --vara-port PORT    VARA command port; data port is PORT+1 (default: 8300)\n"

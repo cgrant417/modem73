@@ -92,7 +92,7 @@ struct TNCConfig {
     std::string bind_address = "0.0.0.0";
     std::string control_bind_address = "127.0.0.1";
     int port = 8001;
-    HostInterface host_interface = HostInterface::KISS;
+    HostInterface host_interface = HostInterface::VARA;
     int vara_port = 8300;                          // VARA command port; data port is vara_port + 1
     std::string vara_bind_address = "127.0.0.1";
     

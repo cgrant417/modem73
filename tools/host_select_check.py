@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """Check --host kiss|vara startup selection.
 
-Runs modem73 headless (PTT none, audio on M73_CARD via a throwaway HOME) and checks:
-  - kiss (default): KISS port open, VARA ports closed
-  - vara: VARA command + data ports open, KISS port closed; one host per port;
-    commands and data are logged; get_status reports host_interface and client_count
-  - host_interface=1 in the settings file selects VARA; --host kiss overrides it
+Runs modem73fm headless (PTT none, audio on M73_CARD via a throwaway HOME) and checks:
+  - vara (default): VARA command + data ports open, KISS port closed; one host per port;
+    commands are logged with -v; get_status reports host_interface and client_count
+  - --host kiss: KISS port open, VARA ports closed
+  - host_interface=0 in the settings file selects KISS; --host vara overrides it
   - invalid --host value and a busy VARA data port are startup errors
-Usage: tools/host_select_check.py <modem73 binary>
+Usage: tools/host_select_check.py <modem73fm binary>
 """
 import json, os, shutil, socket, struct, subprocess, sys, time
 
-BIN = sys.argv[1]
+BIN = os.path.abspath(sys.argv[1])   # it runs with cwd set to a throwaway HOME
 CARD = os.environ.get("M73_CARD", "plughw:0,0")
 WORK = os.environ.get("M73_WORK", "/tmp/m73host")
 KISS, VARA, CTRL = 18001, 18300, 18073
@@ -79,15 +79,15 @@ def read(path):
 
 shutil.rmtree(WORK, ignore_errors=True)
 
-print("== default (kiss)")
-p, log = start(home("kiss"))
+print("== --host kiss")
+p, log = start(home("kiss"), "--host", "kiss")
 check(wait_listening(KISS), "KISS port listening")
 check(not is_listening(VARA) and not is_listening(VARA + 1), "VARA ports not listening")
 check(status()["host_interface"] == "kiss", "get_status host_interface = kiss")
 stop(p)
 
-print("== --host vara")
-p, log = start(home("vara"), "--host", "vara")
+print("== default (vara)")
+p, log = start(home("vara"), "-v")
 check(wait_listening(VARA) and is_listening(VARA + 1), "VARA command and data ports listening")
 check(not is_listening(KISS), "KISS port not listening")
 time.sleep(0.5)
@@ -111,25 +111,25 @@ check(status()["client_count"] == 0, "client_count back to 0 after host disconne
 stop(p)
 text = read(log)
 for needle in ["VARA host interface listening on 127.0.0.1:%d (command) and 127.0.0.1:%d (data)" % (VARA, VARA + 1),
-               "host command 'MYCALL N0CALL'", "host command 'LISTEN ON'",
-               "15 data bytes from host", "command port already has a host",
+               "VARA: host> MYCALL N0CALL", "VARA: host> LISTEN ON",
+               "15 data bytes while not connected, discarded", "command port already has a host",
                "host disconnected from command port", "host disconnected from data port"]:
     check(needle in text, f"log has: {needle}")
 check("KISS TNC listening" not in text, "log has no KISS listener line")
 
-print("== settings file host_interface=1")
-p, log = start(home("settings_vara", "host_interface=1\n"))
-check(wait_listening(VARA) and not is_listening(KISS), "settings file selects VARA")
+print("== settings file host_interface=0")
+p, log = start(home("settings_kiss", "host_interface=0\n"))
+check(wait_listening(KISS) and not is_listening(VARA), "settings file selects KISS")
 stop(p)
-p, log = start(home("settings_override", "host_interface=1\n"), "--host", "kiss")
-check(wait_listening(KISS) and not is_listening(VARA), "--host kiss overrides settings file")
+p, log = start(home("settings_override", "host_interface=0\n"), "--host", "vara")
+check(wait_listening(VARA) and not is_listening(KISS), "--host vara overrides settings file")
 stop(p)
 
 print("== startup errors")
 p, log = start(home("bad"), "--host", "ax25")
 check(p.wait(timeout=10) == 1 and "Invalid --host 'ax25'" in read(log), "invalid --host rejected")
 blocker = socket.socket(); blocker.bind(("127.0.0.1", VARA + 1)); blocker.listen(1)
-p, log = start(home("busy"), "--host", "vara")
+p, log = start(home("busy"))
 rc = p.wait(timeout=10)
 check(rc == 1 and f"VARA port {VARA + 1} is already in use" in read(log), "busy VARA data port is a startup error")
 blocker.close()

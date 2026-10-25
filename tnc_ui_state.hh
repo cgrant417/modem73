@@ -188,7 +188,7 @@ struct TNCUIState {
     int control_port = 8073;
     std::string bind_address = "0.0.0.0";
     std::string control_bind_address = "127.0.0.1";
-    int host_interface = 0;  // 0=KISS, 1=VARA; fixed at startup
+    int host_interface = 1;  // 0=KISS, 1=VARA (default); fixed at startup
     int vara_port = 8300;
     std::string vara_bind_address = "127.0.0.1";
 
