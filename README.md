@@ -10,6 +10,8 @@
 
 MODEM73 is an open source software modem that works with any HF, VHF, or UHF radio capable of 2400 Hz of bandwidth. All you need is a sound card and audio cable for your radio.  
 
+> **This is modem73fm**, a fork that adds a VARA-compatible host interface with ARQ, for Winlink software such as Pat and LinBPQ over FM. It builds as `modem73fm` and starts in VARA mode by default. See **[MODEM73FM.md](MODEM73FM.md)** for what differs, installation, and Pat and LinBPQ setup. The rest of this README is upstream's.
+
 ![Screenshot](https://i.ibb.co/4ZhhvcQs/Peek-2026-01-01-10-41.gif)
 <table align="center">
   <tr>
@@ -112,11 +114,11 @@ sudo apt install libhidapi-dev
 ```
 # Clone modem73fm (this fork's modem73fm branch)
 
-git clone -b modem73fm https://github.com/cgrant417/modem73
+git clone -b modem73fm https://github.com/cgrant417/modem73 modem73fm
 
 # Build
 
-cd modem73
+cd modem73fm
 make 
 
 # Optional: install to /opt/modem73fm, with the command linked from /usr/local/bin

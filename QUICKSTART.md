@@ -1,5 +1,7 @@
 # Quickstart
 
+> This quickstart is upstream modem73's, and its downloads and packages install upstream modem73. For this fork, modem73fm, see [MODEM73FM.md](MODEM73FM.md).
+
 modem73 is a free, open source software modem. It has configs for any setup, from line of sight UHF links over FM to HF propagation. This guide gets you running in under 5 minutes.
 
 ## Step 1: Download & install
