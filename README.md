@@ -1,280 +1,189 @@
+# modem73fm
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://i.ibb.co/LDNR23jg/MODEM73-white.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://i.ibb.co/wZKznzrF/MODEM73-blk.png">
-    <img alt="MODEM73" src="https://i.ibb.co/wZKznzrF/MODEM73-blk.png">
-  </picture>
-</p>
+modem73fm is a fork of [modem73](https://github.com/RFnexus/modem73) that adds a **VARA-compatible host interface** with its own ARQ link layer on top of modem73's OFDM modem. Winlink software that already drives VARA, such as Pat or LinBPQ, can use it unchanged. It is aimed at FM radios through their 9600 data jacks.
 
+Over the air on the test radios (IC-7000 and FT-857D, 9600 data jacks, 64 KB each way), against VARA FM on the same radios:
 
-MODEM73 is an open source software modem that works with any HF, VHF, or UHF radio capable of 2400 Hz of bandwidth. All you need is a sound card and audio cable for your radio.  
+- **Narrow** (2.4 kHz): 5.5 to 6.0 kbps net against 4.8 kbps for VARA FM narrow.
+- **Wide** (about 6 kHz, `--vara-bw wide`): 10.5 to 10.6 kbps against 4.9 kbps for VARA FM wide.
 
-> **This is modem73fm**, a fork that adds a VARA-compatible host interface with ARQ, for Winlink software such as Pat and LinBPQ over FM. In a narrow-to-narrow test (2.4 kHz audio through the radios' 9600 data ports), modem73fm ran faster than VARA FM narrow over the air on the test radios: 6.0 kbps against 4.8 kbps. modem73fm also has a wideband mode for higher speed over a 9600 data port (`--vara-bw wide`). Wide against wide on the same radios, it ran at 10.5 kbps over the air against 4.9 kbps for VARA FM wide, and on an audio cable at 14.2 to 16.2 kbps against 16.0 kbps. It builds as `modem73fm` and starts in VARA mode by default. See **[MODEM73FM.md](MODEM73FM.md)** for what differs, installation, and Pat and LinBPQ setup. The rest of this README is upstream's.
+Details are in [Speeds measured](#speeds-measured).
 
-![Screenshot](https://i.ibb.co/4ZhhvcQs/Peek-2026-01-01-10-41.gif)
-<table align="center">
-  <tr>
-    <td align="center"><img height="200" alt="modem73 on a UV-K6 with AIOC" src="https://github.com/user-attachments/assets/7180ab80-4386-4ee1-8029-42ca5300ef13" /></td>
-    <td align="center"><img height="200" alt="modem73 on a Xiegu X6100 with Armbian" src="https://github.com/user-attachments/assets/5ac2a8bd-75a1-48a4-8264-74a851a06767" /></td>
-    <td align="center"><img height="200" alt="modem73 over HF with an IC-7300" src="https://github.com/user-attachments/assets/27fe5f6d-3650-422b-ac52-3ca04b6b1469" /></td>
-  </tr>
-  <tr>
-    <td align="center"><sub>Running on a UV-K6 with an All-In-One Audio Cable (AIOC)</sub></td>
-    <td align="center"><sub>Running natively on a Xiegu X6100 with Armbian</sub></td>
-    <td align="center"><sub>Running over HF with an ICOM-7300</sub></td>
-  </tr>
-</table>
+Everything else in modem73 is still here. The KISS interface is still available with `--host kiss`. Upstream's README, kept as [MODEM73.md](MODEM73.md), describes the modem itself: its modes, CSMA, PTT options and control port. modem73 is by [RFnexus](https://github.com/RFnexus/modem73); its OFDM modem is based on the open source [COFDMTV modem](https://github.com/aicodix/modem) by Ahmet Inan / [aicodix GmbH](https://www.aicodix.de/).
 
+> **Not on-air compatible with VARA.** modem73fm speaks VARA's *host* protocol, the TCP command and data ports, not VARA's radio signal. Both ends of a link must run modem73fm. A station running real VARA FM cannot connect to it.
 
+## What is different from modem73
 
-SSB, AM, and FM are all supported. It's plug and play compatible with any KISS application and works with rigctl, CM108 sound devices, and serial PTT out of the box.
+| | modem73 | modem73fm |
+|---|---|---|
+| Binary | `modem73` | `modem73fm` |
+| Default host interface | KISS (TCP 8001) | VARA (TCP 8300 command, 8301 data) |
+| Link layer | none: KISS frames | ARQ: connect, selective repeat, adaptive speed ladder |
+| Settings | `~/.config/modem73/` | `~/.config/modem73fm/` |
+| `make install` | `/usr/local/bin/modem73` | `/usr/local/bin/modem73fm` |
 
-There are three modem families each suited for covering any possible RF setup from clean line of sight FM links to poor HF band conditions. The receiver decodes all of them at the same time, so one station can hear anything another station sends without switching modes. The modem type can be changed under [ CONFIG ] -> Modem or via the control port  
+Both can be installed side by side.
 
-**OFDM**, based on the open source [COFDMTV modem](https://github.com/aicodix/modem) developed by Ahmet Inan / [aicodix GmbH](https://www.aicodix.de/). Modulations from BPSK to QAM4096 with code rates from 1/4 to 5/6 and payloads from 256 to 6144 bytes per frame. Rates run from about 790 bits per second to over 13 kilobits per second in the same 2400 Hz.
+## Install
 
-**ROBUST**, a set of slow modes built for fading HF paths such as 40 and 80 meter NVIS.  Five modes from 1150 bps down to 149 bps in either 2400 Hz or a 600 Hz narrow variant.
+On a Debian, Ubuntu or Arch system, the installer fetches the build dependencies, builds, and offers to install:
 
-**MFSK**, a non-coherent mode for weak signal propagation and backup links. 
-
-
-On VHF/UHF FM, use any OFDM mode.
-
-On good HF SSB paths, use OFDM at 8PSK 1/2  or below depending on your signal budget
-
-On fading/weaker HF paths, use ROBUST modes. For very weak signals or as a backup use MFSK.
-
-### Features
-
-- KISS over TCP so it works with anything that speaks KISS: APRS clients, HamIRC, packet BBS software, Reticulum, custom applications
-- JSON control port API for status and configuration for writing your own programs
-- lightweight UI that runs straight from the terminal and headless mode for embedded use 
-
-
-### [5 minute quickstart guide](https://modem73.app/quickstart.html)
-
-## Installation
-
-
-
-Want to try out a demo of modem73 directly from your browser? Try it out here:
-https://rfnexus.github.io/modem73-wasm-demo/
-Hit "Start microphone" to begin decoding
-
-
-### Windows?
-Windows port: https://github.com/RFnexus/modem73-win | Releases: https://github.com/RFnexus/modem73-win/releases/
-
-
-
-### Android
-https://github.com/RFnexus/modem73-android
-
-
-## Building from source
-
-### Linux
-
-On a system with `apt` or an Arch-based distro with `pacman`? Run the installer script:
 ```
+sudo apt install git          # or: sudo pacman -S git
+git clone https://github.com/cgrant417/modem73fm modem73fm
+cd modem73fm
 ./install.sh
 ```
---- 
 
-1. Install dependencies
+It asks whether to add Hamlib (rig-control PTT) and hidapi (CM108 USB PTT), builds `modem73fm`, and offers to install it to `/usr/local/bin`. `modem73fm` is the repository's default branch, so a plain clone gets it.
 
-```
-# Debian/Ubuntu/Pi
-sudo apt install git build-essential libncurses-dev g++
-```
-
-
-#### Optional Addons
-
-
-##### Hamlib PTT
-modem73 can talk to your radio through Hamlib directly instead of going through rigctld. Install libhamlib-dev or your distro equivalent before building and the Makefile picks it up. Then set PTT to HAMLIB under [ CONFIG ], pick your rig model, and point it at the serial port or a network rig as host:port. rigctld still works the same as before if you'd rather keep that.
-
-```bash
-sudo apt install libhamlib-dev
-```
-
-##### CM108 USB PTT Support
-CM108-based USB audio interfaces have GPIO pins that can be used for PTT control. To enable CM108 support, install libhidapi-dev before building. The Makefile will auto-detect it and enable the feature.
-```
-# Debian/Ubuntu/Pi - install before building 
-sudo apt install libhidapi-dev
-```
-----
-2. Clone and build
-
-
+Or build by hand:
 
 ```
-# Clone modem73fm (this fork's modem73fm branch)
-
+sudo apt install git build-essential libncurses-dev pkg-config   # plus libhamlib-dev, libhidapi-dev if wanted
 git clone https://github.com/cgrant417/modem73fm modem73fm
-
-# Build
-
 cd modem73fm
-make 
-
-# Optional: move to /usr/local/bin
-sudo make install 
-```
-
-and run `./modem73fm` (or `modem73fm` once installed). It installs and keeps its settings (`~/.config/modem73fm`) apart from upstream modem73, so both can be installed at once. `sudo make uninstall` removes it.
-
-### macOS
-
-Apple's default bundled ncurses is too old for the UI, so install Homebrew's and build with the same `make`:
-
-```
-brew install ncurses
-git clone https://github.com/RFnexus/modem73
-cd modem73
 make
+sudo make install        # optional; sudo make uninstall removes it again
 ```
 
-The Makefile picks up Homebrew's ncurses through `brew --prefix ncurses`.
+`make install` copies `modem73fm` to `/usr/local/bin`, and the CM108 and GPIO PTT udev rules to `/etc/udev/rules.d`, as upstream does. `PREFIX=` changes the binary's location (default `/usr/local`). `make uninstall` removes the binary but leaves the udev rules, which upstream modem73 installs too.
 
-if your Homebrew lives elsewhere pass the prefix explicitly with `make NCURSES_PREFIX=/path/to/ncurses`. Hamlib and hidapi from Homebrew are detected the same way as on Linux when `pkg-config` can see them.
+To update later, run `./update.sh`. It updates `~/modem73fm`, or the checkout named by `MODEM73FM_DIR`, and rebuilds. It refuses to touch a checkout whose `origin` is not this fork.
 
-## Running & Operations
+`modem73fm --version` prints the fork's version and the modem73 version it is based on, such as `modem73fm 0.1 (modem73 2.4.2)`.
 
-By default, MODEM73 will listen on port 8001
+## Setting up a station
 
-All of the modes provided by the OFDM modem require a bandwidth of 2400 Hz and work over both FM and SSB. 
+Once per machine:
 
-There are currently five PTT options:
-- NONE (speaker/mic over the air)
-- Rigctl
-- VOX
-- Serial
-- CM108
+1. **Serial PTT access.** For COM PTT, such as a Digirig, add yourself to the `dialout` group, then log out and back in:
+   ```
+   sudo usermod -aG dialout $USER
+   ```
+   CM108 and GPIO PTT are covered by the udev rules that `make install` adds.
+2. **Stop things that grab serial ports.** On a machine with no cellular modem, run `sudo systemctl disable --now ModemManager`, and remove brltty if it is installed (`sudo apt purge brltty`). See [Serial PTT safety](#serial-ptt-safety).
+3. **Optionally, a fixed name for the PTT port.** A udev rule matching the interface's serial number, such as `SYMLINK+="digirig"`, keeps the name the same however the ports are numbered.
 
+Then set modem73fm up in its screen UI:
 
-```
-# Start in UI mode
-./modem73fm
+1. Run `modem73fm`, without `--headless`.
+2. On the CONFIG tab, set the callsign, audio input and output (picked from a list of what is present), and the PTT type and port. Settings are saved to `~/.config/modem73fm/settings` as they change.
+3. Make a test connection and check the S/N that each side reports (see [Levels](#levels)).
+4. From then on, `modem73fm --headless` starts it with the saved settings. Options given on the command line override the file for that run. If the screen UI saves while they are in effect, they are stored too.
 
-# Start in headless mode
-./modem73fm --headless
+The settings file is plain `key=value` lines and can be edited by hand. Several values are list positions rather than names, such as `modem_type=0` for OFDM and `host_interface=1` for VARA, so letting the screen UI write it first is easiest. `--config FILE` uses a different file, for example one per radio.
 
-# See all options with:
-./modem73fm --help
-```
+## Running in VARA mode
 
-### Selecting a mode
-
-```
-# OFDM (default), pick modulation, code rate and frame size
-./modem73fm --head-m QAM16 -r 3/4 --normal
-
-# ROBUST, suffix S for short frames
-./modem73fm --robust-mode RDM-600S
-
-# MFSK
-./modem73fm --mfsk-mode MFSK-16
-```
-
-### CSMA
+VARA mode is the default, and it needs the OFDM modem, which is also the default:
 
 ```
-# Pick the busy detector, then a band and preset for the timings
-./modem73fm --csma-mode sync --csma-band vhf --csma-preset moderate
-
-# Individual knobs override the preset when they come after it
-./modem73fm --headless --csma-band hf --csma-preset relaxed --csma-burst 3
+modem73fm --headless -c YOURCALL \
+    --ptt com --com-port /dev/ttyUSB0 --com-line rts \
+    --input-device "USB Audio Device Mono" --output-device "USB Audio Device Analog Stereo"
 ```
 
-### TX audio level
+- **Ports:** the VARA command port is 8300 and the data port is 8301, on 127.0.0.1. Use `--vara-port` and `--vara-bind` to change them. 8300 is also real VARA's port, so on a machine that runs VARA as well, pick another, for example `--vara-port 8400`.
+- **PTT:** modem73fm keys the radio itself, with any of modem73's PTT types (`com`, `cm108`, `rigctl`, `vox`, and others). Turn PTT control **off** in the host program (Pat, LinBPQ).
+- **Callsign:** `-c` sets the callsign sent in every OFDM frame. The host's `MYCALL` sets the ARQ session's callsign.
+- **Bandwidth:** narrow (2.4 kHz) by default. With `--vara-bw wide`, a station offers the wide waveform (300–6300 Hz) when it calls and accepts it when called. A session is wide only if both stations offer it; otherwise it falls back to narrow. Use wide only when both radios are on their 9600 data ports, since mic and speaker audio cuts off above about 3 kHz. A host's `BW WIDE` or `BW NARROW` changes the setting for the next connection. `--no-wide` leaves the wide decoder out, to save CPU.
+- **One host at a time** per port, as with VARA.
 
-```
-# Soundcard output drive, 5-100 percent
-./modem73fm --tx-level 60
-```
+### Audio devices
 
+`modem73fm --list-audio` lists the device names it can use. If PipeWire or PulseAudio is running, as on most desktop installs, modem73fm goes through it and **ignores `~/.asoundrc`**. Choose the interface by name with `--input-device` and `--output-device`, or `-d` for both. Otherwise it plays to and records from the system default, which may be the wrong card.
 
-### PTT options 
+### Levels
 
-```
-# Connect to rigctld for PTT control
-./modem73fm --rigctl localhost:4532
-```
+Set the levels with the radio's data jack at 9600:
 
-while running `rigctld`
+- Keep the receive peak well below full scale: about −5 dBFS on the loudest signal.
+- A clipped input reads as poor S/N, and the link stays at slow speeds.
+- The S/N each side measures is reported to the host (`SN`), so it is a quick check after a test connection.
 
+## Pat
 
-```
-./modem73fm --ptt vox --vox-freq 1200 --vox-lead 500 --vox-tail 150
-# 500ms vox lead and 150ms vox tail
-```
+Pat's `varafm` transport points at modem73fm's command port. The data port is the next one up.
 
-
-```
-./modem73fm --ptt com --com-port /dev/ttyUSB0 --com-line rts
+```json
+"varafm": { "addr": "localhost:8300", "rig": "", "ptt_ctrl": false }
 ```
 
+- Listen for peer-to-peer connections: `pat --listen varafm http`, or the same with `interactive`.
+- Connect to another station: `pat connect varafm:///THEIRCALL`.
+
+Pat checks over the internet that the *calling* station's Winlink account is active. If it is not, Pat stops at an interactive over-the-air activation prompt before connecting. Call with a callsign that has an account. The listening side is not checked.
+
+## LinBPQ
+
+Add a VARA port pointing at modem73fm, with no PTT settings, since modem73fm keys the radio:
+
 ```
-# CM108 USB audio interface PTT (GPIO3 is the default)
-./modem73fm --ptt cm108 --cm108-gpio 3
-
-# Interfaces whose PTT circuit keys when the GPIO pin is pulled low
-./modem73fm --ptt cm108 --cm108-gpio 3 --cm108-active-low
-```
-
-### Control port
-
-A control port for modem73 will automatically start on port `8073` by default. View `CONTROL_PORT.md` for the full JSON spec
-
-## Usage
-
-### All In One Audio Cable (AIOC)
-modem73 supports the [AIOC](https://github.com/skuep/AIOC) out of the box. To use the All In One Audio cable, set PTT to COM, specify your COM port, and set PTT line to `BOTH` and Invert to `INVERT RTS`. Make sure you have the correct permissions and `/dev/xxxx` specified. The AIOC on most setups will be /dev/ttyACMx (where x is 0, 1, 2). Note that it may change after a device restart, plugging it back in, etc. 
-
-### rigctl
-modem73 supports Hamlib and rigctl for any rigctl supported radio for PTT. Set rigctl to your options and run `rigctld -m (your model) -s (serial baud rate) -r /dev/XXXX)`  The `d` at the end of `rigctl` tells rigctl to run in network mode, which is what modem73 will connect to.
-
-### Reticulum
-Want to use modem73 with Reticulum? Check out the modem73interface
-https://github.com/RFnexus/modem73interface
-
-Drop it into `~/.reticulum/interfaces/` and in your Reticulum config, add something like:
-```
-[[MODEM73]]
-type = Modem73Interface
-enabled = yes
-target_host = 127.0.0.1
-target_port = 8001
-control_host = 127.0.0.1
-control_port = 8073
+PORT
+   PORTNUM=4
+   ID=modem73fm
+   DRIVER=VARA
+   CONFIG
+   ADDR 127.0.0.1 8300
+ENDPORT
 ```
 
+- To call out from the node: `ATTACH 4`, then `C THEIRCALL`. `C 4 THEIRCALL` is refused, because a VARA port is not an AX.25 port.
+- A Winlink client (Pat, Winlink Express) connecting to the BBS needs its user record flagged **RMS Express User**. Otherwise the BBS treats it as a terminal user and does not offer B2 forwarding.
 
-## Platform Specific Notes
+A gateway connected to Winlink's servers (an RMS gateway) works the same way, but only stations running modem73fm can reach it. Winlink's gateway listings know VARA FM, not modem73fm, so do not list it as a VARA gateway.
 
-### Pi Zero 2
+## Serial PTT safety
 
-If you are building from source on a memory constrained device like the Pi Zero 2, you will need to increase swap space. On the Pi Zero 2, and similar this can be done with:
+modem73fm opens the PTT port at startup and clears RTS and DTR at once. Other things on Linux can key a radio by accident:
 
- ```bash
-  sudo fallocate -l 2G /swapfile
-  sudo chmod 600 /swapfile
-  sudo mkswap /swapfile
-  sudo swapon /swapfile
-  free -h                    # confirm the 2G appeared
- ```
+- **Any `open()` of a serial port raises RTS and DTR**, even a read-only check, and even while modem73fm holds the port. On a Digirig, RTS is PTT. Don't probe a PTT port to "see if it is keyed".
+- **HUPCL:** with `hupcl` set, the kernel drops RTS when the last program closes the port, so a crashed modem unkeys the radio. Check with `stty -F /dev/ttyUSB0 -a`; set it with `stty -F /dev/ttyUSB0 hupcl`. VARA under Wine clears it, and it resets when the interface is replugged.
+- **ModemManager** probes new serial ports looking for cellular modems, and **brltty** can claim USB serial adapters. On a station with no cellular modem, run `sudo systemctl disable --now ModemManager`. Remove brltty if it is installed.
 
-The Pi Zero 2 with its SoC can only support 1 decoder at a time. If you are tight on CPU, turn off the decoders you aren't using under CONFIG. 
+## Speeds measured
 
-## Updating
+All runs carried 64 KB of random data with the VARA host protocol. Each row compares modem73fm and VARA FM at the same bandwidth.
 
-modem73 comes included with a update utility `update.sh`
+**Narrow:**
 
-To update to the latest version:
-```
-./update.sh
-```
+| Path | modem73fm narrow | VARA FM narrow |
+|---|---|---|
+| Digirig-to-Digirig audio cable | 7.0 to 9.5 kbps net | 9.5 kbps |
+| IC-7000 to FT-857D over the air (S/N about 27 dB) | 6.0 kbps | 4.8 kbps |
+| FT-857D to IC-7000 over the air (S/N about 21 dB) | 5.5 kbps | 4.8 kbps |
+
+**Wide** (both stations `--vara-bw wide`; over the air, both modems on the same radios and levels on the same day):
+
+| Path | modem73fm wide | VARA FM wide |
+|---|---|---|
+| Digirig-to-Digirig audio cable | 14.2 to 16.2 kbps net | 16.0 kbps |
+| IC-7000 to FT-857D over the air (S/N about 21 dB) | 10.5 kbps | 4.9 kbps |
+| FT-857D to IC-7000 over the air (S/N about 18 dB) | 10.6 kbps | 4.9 kbps |
+
+The narrow speed ladder runs from BPSK 1/2 to QAM1024 5/6 (about 0.7 to 13 kbps per frame), and the wide one from BPSK 1/2 to QAM1024 5/6 (about 1.8 to 32 kbps per frame). Their switch points were measured on a cable with added noise. They have not yet been checked over a wider range of radio paths.
+
+## VARA commands supported
+
+- **Used:** `MYCALL`, `LISTEN ON|OFF`, `CONNECT <mycall> <target>`, `DISCONNECT`, `ABORT`, `DIRTYDISCONNECT`, `VERSION`.
+- **Bandwidth:** `BW WIDE` or `BWWIDE` offers wide, `BW NARROW` or `BWNARROW` narrow only. VARA HF's widths (`BW500`, `BW2300`, `BW2750`) leave the setting as it is.
+- **Accepted and ignored:** `LISTEN CQ`, `COMPRESSION`, `CWID`, `CHAT`, `PUBLIC`, `ENCRYPTION`, `WINLINK`, `P2P`, `CLEANTXBUFFER`. A digipeater path after `CONNECT` is ignored.
+- **Anything else:** gets `WRONG`, and the command is logged.
+- **Replies:** `OK`, `WRONG`, `PENDING`, `CANCELPENDING`, `CONNECTED <caller> <called> NARROW`, `DISCONNECTED`, `BUFFER n`, `PTT ON|OFF`, `SN x`, `BITRATE (level) n bps`, `BUSY ON|OFF`, and `IAMALIVE` every 60 s.
+
+Run with `-v` to log every command and reply.
+
+## Not done yet
+
+- **Timing:** each turnaround costs about 5 s. That dominates short Winlink exchanges, where the message protocol (B2F) makes many small turns.
+- **More radios:** the speed ladder's switch points have only been checked on the bench radios.
+
+## Development tools
+
+- `make arq_test`: ARQ engine simulator, 281 checks, including stress runs over 1000 narrow and 500 wide random seeds.
+- `make vara_test`: two VARA hosts over a simulated channel, 113 checks.
+- `tools/vara_pair.sh start|stop`: two VARA-mode instances, on the ALSA loopback card or on real interfaces (`CARD_A`/`CARD_B`), optionally keying radios (`PTT_A`/`PTT_B`).
+- `tools/vara_baseline.py`: drives two VARA (or modem73fm) instances the way Pat does, and reports throughput.
+- `tools/host_select_check.py`: checks the `--host` startup choice.

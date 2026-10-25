@@ -1,0 +1,280 @@
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://i.ibb.co/LDNR23jg/MODEM73-white.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://i.ibb.co/wZKznzrF/MODEM73-blk.png">
+    <img alt="MODEM73" src="https://i.ibb.co/wZKznzrF/MODEM73-blk.png">
+  </picture>
+</p>
+
+
+MODEM73 is an open source software modem that works with any HF, VHF, or UHF radio capable of 2400 Hz of bandwidth. All you need is a sound card and audio cable for your radio.  
+
+> **This is upstream modem73's README**, kept for its description of the modem: modes, PTT, CSMA, the control port and platform notes. Its build steps are adjusted for this fork, which builds as `modem73fm` and starts in VARA mode. For what modem73fm adds, its installation, and Pat and LinBPQ setup, see the **[README](README.md)**.
+
+![Screenshot](https://i.ibb.co/4ZhhvcQs/Peek-2026-01-01-10-41.gif)
+<table align="center">
+  <tr>
+    <td align="center"><img height="200" alt="modem73 on a UV-K6 with AIOC" src="https://github.com/user-attachments/assets/7180ab80-4386-4ee1-8029-42ca5300ef13" /></td>
+    <td align="center"><img height="200" alt="modem73 on a Xiegu X6100 with Armbian" src="https://github.com/user-attachments/assets/5ac2a8bd-75a1-48a4-8264-74a851a06767" /></td>
+    <td align="center"><img height="200" alt="modem73 over HF with an IC-7300" src="https://github.com/user-attachments/assets/27fe5f6d-3650-422b-ac52-3ca04b6b1469" /></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Running on a UV-K6 with an All-In-One Audio Cable (AIOC)</sub></td>
+    <td align="center"><sub>Running natively on a Xiegu X6100 with Armbian</sub></td>
+    <td align="center"><sub>Running over HF with an ICOM-7300</sub></td>
+  </tr>
+</table>
+
+
+
+SSB, AM, and FM are all supported. It's plug and play compatible with any KISS application and works with rigctl, CM108 sound devices, and serial PTT out of the box.
+
+There are three modem families each suited for covering any possible RF setup from clean line of sight FM links to poor HF band conditions. The receiver decodes all of them at the same time, so one station can hear anything another station sends without switching modes. The modem type can be changed under [ CONFIG ] -> Modem or via the control port  
+
+**OFDM**, based on the open source [COFDMTV modem](https://github.com/aicodix/modem) developed by Ahmet Inan / [aicodix GmbH](https://www.aicodix.de/). Modulations from BPSK to QAM4096 with code rates from 1/4 to 5/6 and payloads from 256 to 6144 bytes per frame. Rates run from about 790 bits per second to over 13 kilobits per second in the same 2400 Hz.
+
+**ROBUST**, a set of slow modes built for fading HF paths such as 40 and 80 meter NVIS.  Five modes from 1150 bps down to 149 bps in either 2400 Hz or a 600 Hz narrow variant.
+
+**MFSK**, a non-coherent mode for weak signal propagation and backup links. 
+
+
+On VHF/UHF FM, use any OFDM mode.
+
+On good HF SSB paths, use OFDM at 8PSK 1/2  or below depending on your signal budget
+
+On fading/weaker HF paths, use ROBUST modes. For very weak signals or as a backup use MFSK.
+
+### Features
+
+- KISS over TCP so it works with anything that speaks KISS: APRS clients, HamIRC, packet BBS software, Reticulum, custom applications
+- JSON control port API for status and configuration for writing your own programs
+- lightweight UI that runs straight from the terminal and headless mode for embedded use 
+
+
+### [5 minute quickstart guide](https://modem73.app/quickstart.html)
+
+## Installation
+
+
+
+Want to try out a demo of modem73 directly from your browser? Try it out here:
+https://rfnexus.github.io/modem73-wasm-demo/
+Hit "Start microphone" to begin decoding
+
+
+### Windows?
+Windows port: https://github.com/RFnexus/modem73-win | Releases: https://github.com/RFnexus/modem73-win/releases/
+
+
+
+### Android
+https://github.com/RFnexus/modem73-android
+
+
+## Building from source
+
+### Linux
+
+On a system with `apt` or an Arch-based distro with `pacman`? Run the installer script:
+```
+./install.sh
+```
+--- 
+
+1. Install dependencies
+
+```
+# Debian/Ubuntu/Pi
+sudo apt install git build-essential libncurses-dev g++
+```
+
+
+#### Optional Addons
+
+
+##### Hamlib PTT
+modem73 can talk to your radio through Hamlib directly instead of going through rigctld. Install libhamlib-dev or your distro equivalent before building and the Makefile picks it up. Then set PTT to HAMLIB under [ CONFIG ], pick your rig model, and point it at the serial port or a network rig as host:port. rigctld still works the same as before if you'd rather keep that.
+
+```bash
+sudo apt install libhamlib-dev
+```
+
+##### CM108 USB PTT Support
+CM108-based USB audio interfaces have GPIO pins that can be used for PTT control. To enable CM108 support, install libhidapi-dev before building. The Makefile will auto-detect it and enable the feature.
+```
+# Debian/Ubuntu/Pi - install before building 
+sudo apt install libhidapi-dev
+```
+----
+2. Clone and build
+
+
+
+```
+# Clone modem73fm (this fork's modem73fm branch)
+
+git clone https://github.com/cgrant417/modem73fm modem73fm
+
+# Build
+
+cd modem73fm
+make 
+
+# Optional: move to /usr/local/bin
+sudo make install 
+```
+
+and run `./modem73fm` (or `modem73fm` once installed). It installs and keeps its settings (`~/.config/modem73fm`) apart from upstream modem73, so both can be installed at once. `sudo make uninstall` removes it.
+
+### macOS
+
+Apple's default bundled ncurses is too old for the UI, so install Homebrew's and build with the same `make`:
+
+```
+brew install ncurses
+git clone https://github.com/RFnexus/modem73
+cd modem73
+make
+```
+
+The Makefile picks up Homebrew's ncurses through `brew --prefix ncurses`.
+
+if your Homebrew lives elsewhere pass the prefix explicitly with `make NCURSES_PREFIX=/path/to/ncurses`. Hamlib and hidapi from Homebrew are detected the same way as on Linux when `pkg-config` can see them.
+
+## Running & Operations
+
+By default, MODEM73 will listen on port 8001
+
+All of the modes provided by the OFDM modem require a bandwidth of 2400 Hz and work over both FM and SSB. 
+
+There are currently five PTT options:
+- NONE (speaker/mic over the air)
+- Rigctl
+- VOX
+- Serial
+- CM108
+
+
+```
+# Start in UI mode
+./modem73fm
+
+# Start in headless mode
+./modem73fm --headless
+
+# See all options with:
+./modem73fm --help
+```
+
+### Selecting a mode
+
+```
+# OFDM (default), pick modulation, code rate and frame size
+./modem73fm --head-m QAM16 -r 3/4 --normal
+
+# ROBUST, suffix S for short frames
+./modem73fm --robust-mode RDM-600S
+
+# MFSK
+./modem73fm --mfsk-mode MFSK-16
+```
+
+### CSMA
+
+```
+# Pick the busy detector, then a band and preset for the timings
+./modem73fm --csma-mode sync --csma-band vhf --csma-preset moderate
+
+# Individual knobs override the preset when they come after it
+./modem73fm --headless --csma-band hf --csma-preset relaxed --csma-burst 3
+```
+
+### TX audio level
+
+```
+# Soundcard output drive, 5-100 percent
+./modem73fm --tx-level 60
+```
+
+
+### PTT options 
+
+```
+# Connect to rigctld for PTT control
+./modem73fm --rigctl localhost:4532
+```
+
+while running `rigctld`
+
+
+```
+./modem73fm --ptt vox --vox-freq 1200 --vox-lead 500 --vox-tail 150
+# 500ms vox lead and 150ms vox tail
+```
+
+
+```
+./modem73fm --ptt com --com-port /dev/ttyUSB0 --com-line rts
+```
+
+```
+# CM108 USB audio interface PTT (GPIO3 is the default)
+./modem73fm --ptt cm108 --cm108-gpio 3
+
+# Interfaces whose PTT circuit keys when the GPIO pin is pulled low
+./modem73fm --ptt cm108 --cm108-gpio 3 --cm108-active-low
+```
+
+### Control port
+
+A control port for modem73 will automatically start on port `8073` by default. View `CONTROL_PORT.md` for the full JSON spec
+
+## Usage
+
+### All In One Audio Cable (AIOC)
+modem73 supports the [AIOC](https://github.com/skuep/AIOC) out of the box. To use the All In One Audio cable, set PTT to COM, specify your COM port, and set PTT line to `BOTH` and Invert to `INVERT RTS`. Make sure you have the correct permissions and `/dev/xxxx` specified. The AIOC on most setups will be /dev/ttyACMx (where x is 0, 1, 2). Note that it may change after a device restart, plugging it back in, etc. 
+
+### rigctl
+modem73 supports Hamlib and rigctl for any rigctl supported radio for PTT. Set rigctl to your options and run `rigctld -m (your model) -s (serial baud rate) -r /dev/XXXX)`  The `d` at the end of `rigctl` tells rigctl to run in network mode, which is what modem73 will connect to.
+
+### Reticulum
+Want to use modem73 with Reticulum? Check out the modem73interface
+https://github.com/RFnexus/modem73interface
+
+Drop it into `~/.reticulum/interfaces/` and in your Reticulum config, add something like:
+```
+[[MODEM73]]
+type = Modem73Interface
+enabled = yes
+target_host = 127.0.0.1
+target_port = 8001
+control_host = 127.0.0.1
+control_port = 8073
+```
+
+
+## Platform Specific Notes
+
+### Pi Zero 2
+
+If you are building from source on a memory constrained device like the Pi Zero 2, you will need to increase swap space. On the Pi Zero 2, and similar this can be done with:
+
+ ```bash
+  sudo fallocate -l 2G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile
+  sudo swapon /swapfile
+  free -h                    # confirm the 2G appeared
+ ```
+
+The Pi Zero 2 with its SoC can only support 1 decoder at a time. If you are tight on CPU, turn off the decoders you aren't using under CONFIG. 
+
+## Updating
+
+modem73 comes included with a update utility `update.sh`
+
+To update to the latest version:
+```
+./update.sh
+```
