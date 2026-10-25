@@ -23,16 +23,19 @@ Both can be installed side by side.
 On a Debian, Ubuntu or Arch system, the installer fetches the build dependencies, builds, and offers to install:
 
 ```
-git clone -b modem73fm https://github.com/cgrant417/modem73 modem73fm
+sudo apt install git          # or: sudo pacman -S git
+git clone https://github.com/cgrant417/modem73 modem73fm
 cd modem73fm
 ./install.sh
 ```
+
+It asks whether to add Hamlib (rig-control PTT) and hidapi (CM108 USB PTT), builds `modem73fm`, and offers to install it to `/usr/local/bin`. `modem73fm` is the repository's default branch, so a plain clone gets it.
 
 Or build by hand:
 
 ```
 sudo apt install git build-essential libncurses-dev pkg-config   # plus libhamlib-dev, libhidapi-dev if wanted
-git clone -b modem73fm https://github.com/cgrant417/modem73 modem73fm
+git clone https://github.com/cgrant417/modem73 modem73fm
 cd modem73fm
 make
 sudo make install        # optional; sudo make uninstall removes it again
@@ -43,6 +46,27 @@ sudo make install        # optional; sudo make uninstall removes it again
 To update later, run `./update.sh`. It updates `~/modem73fm`, or the checkout named by `MODEM73FM_DIR`, and rebuilds. It refuses to touch a checkout whose `origin` is not this fork.
 
 `modem73fm --version` prints the fork's version and the modem73 version it is based on, such as `modem73fm 0.1 (modem73 2.4.2)`.
+
+## Setting up a station
+
+Once per machine:
+
+1. **Serial PTT access.** For COM PTT, such as a Digirig, add yourself to the `dialout` group, then log out and back in:
+   ```
+   sudo usermod -aG dialout $USER
+   ```
+   CM108 and GPIO PTT are covered by the udev rules that `make install` adds.
+2. **Stop things that grab serial ports.** On a machine with no cellular modem, run `sudo systemctl disable --now ModemManager`, and remove brltty if it is installed (`sudo apt purge brltty`). See [Serial PTT safety](#serial-ptt-safety).
+3. **Optionally, a fixed name for the PTT port.** A udev rule matching the interface's serial number, such as `SYMLINK+="digirig"`, keeps the name the same however the ports are numbered.
+
+Then set modem73fm up in its screen UI:
+
+1. Run `modem73fm`, without `--headless`.
+2. On the CONFIG tab, set the callsign, audio input and output (picked from a list of what is present), and the PTT type and port. Settings are saved to `~/.config/modem73fm/settings` as they change.
+3. Make a test connection and check the S/N that each side reports (see [Levels](#levels)).
+4. From then on, `modem73fm --headless` starts it with the saved settings. Options given on the command line override the file for that run. If the screen UI saves while they are in effect, they are stored too.
+
+The settings file is plain `key=value` lines and can be edited by hand. Several values are list positions rather than names, such as `modem_type=0` for OFDM and `host_interface=1` for VARA, so letting the screen UI write it first is easiest. `--config FILE` uses a different file, for example one per radio.
 
 ## Running in VARA mode
 
