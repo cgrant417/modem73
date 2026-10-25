@@ -14,8 +14,7 @@ CXXFLAGS += -DMODEM73_VERSION=\"$(VERSION)\"
 APP_VERSION ?= 0.1
 CXXFLAGS += -DAPP_VERSION=\"$(APP_VERSION)\"
 
-# make install: the binary goes in INSTALL_DIR/bin, with a link in PREFIX/bin
-INSTALL_DIR ?= /opt/modem73fm
+# make install copies the binary to PREFIX/bin, as upstream does to /usr/local/bin
 PREFIX ?= /usr/local
 
 # dependencies
@@ -104,11 +103,8 @@ clean:
 	rm -f $(TARGET) modem73 $(OBJS) test_suite/test_fade test_suite/test_awgn test_suite/test_mfsk test_suite/test_robust test_suite/test_e2e test_suite/test_csma test_suite/wav_decode tests/arq_sim tests/phy_jitter tests/vara_host_sim
 
 install: $(TARGET)
-	install -d $(DESTDIR)$(INSTALL_DIR)/bin $(DESTDIR)$(INSTALL_DIR)/misc $(DESTDIR)$(PREFIX)/bin
-	install -m 755 $(TARGET) $(DESTDIR)$(INSTALL_DIR)/bin/
-	install -m 644 misc/*.rules $(DESTDIR)$(INSTALL_DIR)/misc/
-	ln -sf $(INSTALL_DIR)/bin/$(TARGET) $(DESTDIR)$(PREFIX)/bin/$(TARGET)
-	@echo "Installed $(INSTALL_DIR)/bin/$(TARGET), linked from $(PREFIX)/bin/$(TARGET)"
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/bin/
 ifneq ($(HIDAPI_LIBS),)
 	@if [ -f misc/50-cm108-ptt.rules ]; then \
 		cp misc/50-cm108-ptt.rules /etc/udev/rules.d/ 2>/dev/null || \
@@ -122,11 +118,9 @@ ifneq ($(UNAME_S),Darwin)
 	fi
 endif
 
-# Removes what install put in INSTALL_DIR and the PREFIX/bin link; settings in ~/.config/modem73fm stay
+# Removes the binary; the udev rules (shared with upstream modem73) and ~/.config/modem73fm stay
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(TARGET)
-	rm -f $(DESTDIR)$(INSTALL_DIR)/bin/$(TARGET) $(addprefix $(DESTDIR)$(INSTALL_DIR)/,$(wildcard misc/*.rules))
-	-rmdir $(DESTDIR)$(INSTALL_DIR)/bin $(DESTDIR)$(INSTALL_DIR)/misc $(DESTDIR)$(INSTALL_DIR)
 
 # Debug build
 debug: CXXFLAGS = -std=c++17 -g -O0 -Wall -Wextra -DDEBUG
@@ -191,8 +185,8 @@ help:
 	@echo "Targets:"
 	@echo "  all      - Build modem"
 	@echo "  clean    - Remove build"
-	@echo "  install   - Install to INSTALL_DIR (default /opt/modem73fm), linked from PREFIX/bin"
-	@echo "  uninstall - Remove what install put there (settings in ~/.config/modem73fm stay)"
+	@echo "  install   - Install to PREFIX/bin (default /usr/local/bin)"
+	@echo "  uninstall - Remove the installed binary (udev rules and ~/.config/modem73fm stay)"
 	@echo "  debug    - Build with debug symbols"
 	@echo ""
 	@echo "Variables:"
@@ -203,8 +197,7 @@ help:
 	@echo "  NCURSES_SRC  - extra ncurses include directory"
 	@echo "  NCURSES_LIBS - ncurses link flags (default: -lncurses -ltinfo, macOS: -lncurses)"
 	@echo "  ARCHFLAGS    - CPU tuning flags (default: -march=native)"
-	@echo "  INSTALL_DIR  - install directory (default: /opt/modem73fm)"
-	@echo "  PREFIX       - where the command link goes (default: /usr/local, so /usr/local/bin)"
+	@echo "  PREFIX       - install prefix (default: /usr/local, so /usr/local/bin)"
 	@echo ""
 	@echo "Optional features:"
 	@echo "  CM108 PTT    - Requires libhidapi-dev (auto-detected)"

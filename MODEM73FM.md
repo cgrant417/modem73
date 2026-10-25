@@ -14,7 +14,7 @@ Everything else in modem73 is still here. The KISS interface is still available 
 | Default host interface | KISS (TCP 8001) | VARA (TCP 8300 command, 8301 data) |
 | Link layer | none: KISS frames | ARQ: connect, selective repeat, adaptive speed ladder |
 | Settings | `~/.config/modem73/` | `~/.config/modem73fm/` |
-| `make install` | `/usr/local/bin/modem73` | `/opt/modem73fm/bin/modem73fm`, linked from `/usr/local/bin/modem73fm` |
+| `make install` | `/usr/local/bin/modem73` | `/usr/local/bin/modem73fm` |
 
 Both can be installed side by side.
 
@@ -38,8 +38,7 @@ make
 sudo make install        # optional; sudo make uninstall removes it again
 ```
 
-- `INSTALL_DIR=` changes the install directory (default `/opt/modem73fm`).
-- `PREFIX=` changes where the command link goes (default `/usr/local`, so `/usr/local/bin`).
+`make install` copies `modem73fm` to `/usr/local/bin`, and the CM108 and GPIO PTT udev rules to `/etc/udev/rules.d`, as upstream does. `PREFIX=` changes the binary's location (default `/usr/local`). `make uninstall` removes the binary but leaves the udev rules, which upstream modem73 installs too.
 
 To update later, run `./update.sh`. It updates `~/modem73fm`, or the checkout named by `MODEM73FM_DIR`, and rebuilds. It refuses to touch a checkout whose `origin` is not this fork.
 

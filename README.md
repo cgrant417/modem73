@@ -121,7 +121,7 @@ git clone -b modem73fm https://github.com/cgrant417/modem73 modem73fm
 cd modem73fm
 make 
 
-# Optional: install to /opt/modem73fm, with the command linked from /usr/local/bin
+# Optional: move to /usr/local/bin
 sudo make install 
 ```
 

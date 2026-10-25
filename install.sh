@@ -94,7 +94,7 @@ if [[ "$CM108" =~ ^[Yy]$ ]] && ! ldd modem73fm 2>/dev/null | grep -q hidapi; the
 fi
 
 echo ""
-read -rp "Install modem73fm to /opt/modem73fm (command linked from /usr/local/bin)? [y/N] " INSTALL
+read -rp "Install modem73fm to /usr/local/bin? [y/N] " INSTALL
 if [[ "$INSTALL" =~ ^[Yy]$ ]]; then
     # Some Arch Linux systems, and even some Debian-like ones that have been
     # modified, may not have /usr/local/bin as a valid directory. If that is
