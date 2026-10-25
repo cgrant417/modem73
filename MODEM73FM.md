@@ -148,12 +148,13 @@ All runs carried 64 KB of random data with the VARA host protocol. Each row comp
 | IC-7000 to FT-857D over the air (S/N about 27 dB) | 6.0 kbps | 4.8 kbps |
 | FT-857D to IC-7000 over the air (S/N about 21 dB) | 5.5 kbps | 4.8 kbps |
 
-**Wide** (both stations `--vara-bw wide`):
+**Wide** (both stations `--vara-bw wide`; over the air, both modems on the same radios and levels on the same day):
 
 | Path | modem73fm wide | VARA FM wide |
 |---|---|---|
 | Digirig-to-Digirig audio cable | 14.2 to 16.2 kbps net | 16.0 kbps |
-| IC-7000 and FT-857D over the air | TBD | 4.2 to 5.1 kbps (32–128 KB) |
+| IC-7000 to FT-857D over the air (S/N about 21 dB) | 10.5 kbps | 4.9 kbps |
+| FT-857D to IC-7000 over the air (S/N about 18 dB) | 10.6 kbps | 4.9 kbps |
 
 The narrow speed ladder runs from BPSK 1/2 to QAM1024 5/6 (about 0.7 to 13 kbps per frame), and the wide one from BPSK 1/2 to QAM1024 5/6 (about 1.8 to 32 kbps per frame). Their switch points were measured on a cable with added noise. They have not yet been checked over a wider range of radio paths.
 
@@ -169,7 +170,6 @@ Run with `-v` to log every command and reply.
 
 ## Not done yet
 
-- **Wide mode over the air:** wide is calibrated and tested on a cable, but not yet over the radios.
 - **Timing:** each turnaround costs about 5 s. That dominates short Winlink exchanges, where the message protocol (B2F) makes many small turns.
 - **More radios:** the speed ladder's switch points have only been checked on the bench radios.
 
