@@ -95,6 +95,8 @@ modem73fm --headless -c YOURCALL \
 
 `modem73fm --list-audio` lists the device names it can use. If PipeWire or PulseAudio is running, as on most desktop installs, modem73fm goes through it and **ignores `~/.asoundrc`**. Choose the interface by name with `--input-device` and `--output-device`, or `-d` for both. Otherwise it plays to and records from the system default, which may be the wrong card.
 
+To bypass PipeWire and open the card directly, use `--audio-backend alsa` with a card-ID name, e.g. `-d plughw:CARD=Device,DEV=0` (`aplay -l` shows the IDs). Don't use `default` here: under PipeWire it still goes through PipeWire. Card-ID names survive reboots that renumber cards, but two identical interfaces get `Device` and `Device_1` in the order the system finds them, so check which is which. If the card is unplugged, modem73fm reopens it when it comes back.
+
 ### Levels
 
 Set the levels with the radio's data jack at 9600:
