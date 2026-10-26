@@ -185,7 +185,7 @@ Run with `-v` to log every command and reply.
 
 ## Development tools
 
-- `make arq_test`: ARQ engine simulator, 289 checks, including stress runs over 1000 narrow and 500 wide random seeds.
+- `make arq_test`: ARQ engine simulator, 291 checks, including stress runs over 1000 narrow and 500 wide random seeds.
 - `make vara_test`: two VARA hosts over a simulated channel, 113 checks.
 - `tools/vara_pair.sh start|stop`: two VARA-mode instances, on the ALSA loopback card or on real interfaces (`CARD_A`/`CARD_B`), optionally keying radios (`PTT_A`/`PTT_B`).
 - `tools/vara_baseline.py`: drives two VARA (or modem73fm) instances the way Pat does, and reports throughput.

@@ -1010,7 +1010,8 @@ private:
     // force: answer every host write, even with an unchanged count, since Pat waits for
     // a BUFFER line after its writes
     void report_buffer(bool force = false) {
-        const size_t unsent = tx_end() - tx_next_;
+        // a closed session clears the buffer, leaving tx_next_ past its end
+        const size_t unsent = tx_next_ < tx_end() ? tx_end() - tx_next_ : 0;
         const auto [cap, frames] = burst_shape();
         const size_t room = (size_t)cap * (size_t)frames;
         size_t n = unsent > room ? unsent - room : 0;

@@ -535,6 +535,14 @@ TEST(abort_mid_transfer) {
     check(sim.st[1].link->state() == State::DISCONNECTED && sim.now < 40000 + 30000,
           "peer disconnects within 30 s (" + std::to_string(sim.now / 1000) + " s)");
     check(is_prefix(sim.st[1].received, data), "partial data is a clean prefix");
+    size_t last_buffer = SIZE_MAX, max_buffer = 0;
+    for (const auto& e : sim.st[0].events)
+        if (e.type == HostEventType::BUFFER) {
+            last_buffer = e.buffer;
+            max_buffer = std::max(max_buffer, e.buffer);
+        }
+    check(last_buffer == 0, "BUFFER reads 0 after the abort (" + std::to_string(last_buffer) + ")");
+    check(max_buffer <= data.size(), "BUFFER never above what the host sent");
 }
 
 TEST(link_failure) {
