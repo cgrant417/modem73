@@ -23,6 +23,14 @@ public:
         }
     }
     
+    int modal_getch() {
+        timeout(250);
+        for (;;) {
+            int key = getch();
+            if (key != ERR || !g_running) return key;
+        }
+    }
+
     void run() {
         // set locale LC_ALL for Unicode character support,  
         setlocale(LC_ALL, "");
@@ -310,6 +318,14 @@ private:
                     state_.on_stop_requested();
                 }
                 running_ = false;
+                break;
+
+            case 'r':
+            case 'R':
+                if (state_.on_reconnect_audio && state_.on_reconnect_audio())
+                    state_.add_log("Audio: reconnect requested");
+                else
+                    state_.add_log("(!) Audio reconnect unavailable");
                 break;
                 
             case '\t':
@@ -759,7 +775,6 @@ private:
     // buf must hold at least max_len + 1 bytes.
     bool prompt_input(int y, int x, char* buf, int max_len) {
         curs_set(1);
-        nodelay(stdscr, FALSE);
 
         int len = (int)strlen(buf);
         bool accepted = false;
@@ -770,7 +785,8 @@ private:
             move(y, x + len);
             refresh();
 
-            int ch = getch();
+            int ch = modal_getch();
+            if (ch == ERR) break;
             if (ch == 27) {
                 break;
             } else if (ch == '\n' || ch == KEY_ENTER) {
@@ -1618,7 +1634,6 @@ private:
         int visible = dialog_h - 4;
         std::string filter;
         int selection = 0, scroll = 0;
-        nodelay(stdscr, FALSE);
         while (true) {
             std::vector<int> shown;
             for (int i = 0; i < (int)models.size(); i++) {
@@ -1653,7 +1668,8 @@ private:
             mvaddstr(dialog_y + dialog_h - 1, dialog_x + 2, " type to filter  Enter=OK  Esc=Cancel ");
             attroff(A_DIM);
             refresh();
-            int ch = getch();
+            int ch = modal_getch();
+            if (ch == ERR) break;
             if (ch == 27) break;
             if ((ch == '\n' || ch == KEY_ENTER) && !shown.empty()) {
                 state_.hamlib_model = models[shown[selection]].id;
@@ -1703,7 +1719,6 @@ private:
         int dialog_x = (cols - dialog_w) / 2;
         int dialog_y = (rows - dialog_h) / 2;
 
-        nodelay(stdscr, FALSE);
 
         while (true) {
             for (int y = dialog_y; y < dialog_y + dialog_h; y++) {
@@ -1749,7 +1764,8 @@ private:
 
             refresh();
 
-            int ch = getch();
+            int ch = modal_getch();
+            if (ch == ERR) break;
 
             if (ch == 27 || ch == 'q') {
                 break;
@@ -1808,7 +1824,6 @@ private:
         int scroll_offset = 0;
         if (selection >= max_visible) scroll_offset = selection - max_visible + 1;
 
-        nodelay(stdscr, FALSE);
 
         bool manual = false;
         while (true) {
@@ -1850,7 +1865,8 @@ private:
             attroff(A_DIM);
 
             refresh();
-            int ch = getch();
+            int ch = modal_getch();
+            if (ch == ERR) break;
 
             if (ch == 27 || ch == 'q') {
                 break;
@@ -1887,6 +1903,7 @@ private:
     void show_device_select_dialog(bool is_input) {
         int rows, cols;
         getmaxyx(stdscr, rows, cols);
+        if (state_.on_refresh_audio_devices) state_.on_refresh_audio_devices();
         
         const std::vector<std::string>& devices = is_input ? 
             state_.available_input_devices : state_.available_output_devices;
@@ -1914,7 +1931,6 @@ private:
             scroll_offset = selection - max_visible + 1;
         }
         
-        nodelay(stdscr, FALSE);
         
         while (true) {
             // Clear dialog area
@@ -1977,12 +1993,12 @@ private:
             // Help
             attron(A_DIM);
             mvaddstr(dialog_y + dialog_h - 1, dialog_x + 2, " Enter=OK  Esc=Cancel ");
-            mvaddstr(dialog_y + dialog_h - 1, dialog_x + dialog_w - 15, "(needs restart)");
             attroff(A_DIM);
             
             refresh();
             
-            int ch = getch();
+            int ch = modal_getch();
+            if (ch == ERR) break;
             
             if (ch == 27 || ch == 'q') {
                 break;
@@ -1990,8 +2006,8 @@ private:
                 if (selection >= 0 && selection < (int)devices.size()) {
                     current_index = selection;
                     current_device = devices[selection];
-                    state_.add_log(std::string(is_input ? "In: " : "Out: ") + 
-                                   descriptions[selection] + " (restart to apply)");
+                    state_.add_log(std::string(is_input ? "In: " : "Out: ") +
+                                   descriptions[selection]);
                     apply_settings();
                 }
                 break;
@@ -2076,7 +2092,6 @@ private:
         }
 
 
-        nodelay(stdscr, FALSE);
 
         while (true) {
             for (int y = dialog_y; y < dialog_y + dialog_h; y++) {
@@ -2137,7 +2152,8 @@ private:
 
             refresh();
 
-            int ch = getch();
+            int ch = modal_getch();
+            if (ch == ERR) break;
 
             if (ch == 27 || ch == 'q') {
                 break;
