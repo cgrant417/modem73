@@ -43,7 +43,7 @@ struct HostEvent {
     bool outgoing = false;       // CONNECTED: we placed the call
     uint8_t bw = 0;              // CONNECTED: bandwidth class (BW_NARROW / BW_WIDE)
     std::string reason;          // DISCONNECTED
-    size_t buffer = 0;           // BUFFER: bytes sent by the host and not yet acknowledged
+    size_t buffer = 0;           // BUFFER: host bytes not yet sent that won't fit in the next burst
 };
 
 enum class State { DISCONNECTED, CALLING, ACCEPTING, CONNECTED, DISCONNECTING };
@@ -95,7 +95,7 @@ public:
     void send(const std::vector<uint8_t>& data, int64_t now) {
         if (data.empty()) return;
         tx_buf_.insert(tx_buf_.end(), data.begin(), data.end());
-        report_buffer();
+        report_buffer(true);
         if (state_ == State::CONNECTED && iss_ && wait_ == Wait::IDLE) {
             cancel(Action::POLL_KEEPALIVE);
             wait_ = Wait::NONE;
@@ -399,13 +399,21 @@ private:
         idle_poll_ms_ = std::min(idle_poll_ms_ * 2, p_.idle_poll_max_ms);
     }
 
+    // Payload bytes per frame and frames per burst at the current step
+    std::pair<uint32_t, int> burst_shape() const {
+        const auto& ladder = p_.ladder(bw_);
+        const ModeDesc& mode = ladder[std::max(0, std::min(tx_step_, (int)ladder.size() - 1))].mode;
+        const uint32_t cap = (uint32_t)std::max<int>(1, mode.payload - (int)DATA_HEADER_SIZE);
+        // the negotiated burst size, cut so one keying stays within burst_air_max_ms
+        const int frames = std::max(1, std::min(burst_, mode.air_ms > 0 ? p_.burst_air_max_ms / mode.air_ms : burst_));
+        return {cap, frames};
+    }
+
     void send_burst(const std::vector<Range>& lost, int64_t now) {
         const auto& ladder = p_.ladder(bw_);
         tx_step_ = std::max(0, std::min(tx_step_, (int)ladder.size() - 1));
         const ModeDesc& mode = ladder[tx_step_].mode;
-        const uint32_t cap = (uint32_t)std::max<int>(1, mode.payload - (int)DATA_HEADER_SIZE);
-        // the negotiated burst size, cut so one keying stays within burst_air_max_ms
-        const int frames = std::max(1, std::min(burst_, mode.air_ms > 0 ? p_.burst_air_max_ms / mode.air_ms : burst_));
+        const auto [cap, frames] = burst_shape();
         std::vector<Range> segs;
         for (const auto& r : lost)
             for (uint32_t s = r.first; s < r.second && (int)segs.size() < frames; s += cap)
@@ -437,6 +445,7 @@ private:
         acked_before_burst_ = acked_bytes();
         burst_outstanding_ = true;
         if (peer_has_data_) bursts_since_peer_req_++;
+        report_buffer();   // the host can refill while this burst is on the air
         transmit(req, Sent::DATA, now);
     }
 
@@ -994,9 +1003,18 @@ private:
         return "unknown";
     }
 
-    void report_buffer() {
-        size_t n = tx_buf_.size();
-        if (n == last_buffer_) return;
+    // BUFFER counts the unsent bytes beyond what the next burst will carry. Pat stops
+    // writing at a fixed count (7 blocks of 127 B, 889 B), so counting every unacknowledged
+    // byte would cap each burst at about 900 B. Nothing is lost by reporting less: a
+    // DISCONNECT still waits until everything is acknowledged.
+    // force: answer every host write, even with an unchanged count, since Pat waits for
+    // a BUFFER line after its writes
+    void report_buffer(bool force = false) {
+        const size_t unsent = tx_end() - tx_next_;
+        const auto [cap, frames] = burst_shape();
+        const size_t room = (size_t)cap * (size_t)frames;
+        size_t n = unsent > room ? unsent - room : 0;
+        if (n == last_buffer_ && !force) return;
         last_buffer_ = n;
         HostEvent e{HostEventType::BUFFER};
         e.buffer = n;

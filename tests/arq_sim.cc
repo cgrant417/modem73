@@ -90,6 +90,7 @@ struct Sim {
             l.on_host_event = [this, i](const HostEvent& e) {
                 Station& s = st[i];
                 s.events.push_back(e);
+                if (on_event) on_event(i, e);
                 if (e.type == HostEventType::CONNECTED) {
                     s.connected_seen = true;
                     s.connected_at = now;
@@ -104,6 +105,7 @@ struct Sim {
     }
 
     std::function<void(int)> on_connected;
+    std::function<void(int, const HostEvent&)> on_event;
 
     void at(int64_t t, std::function<void()> fn) { q.push({t, seq++, std::move(fn)}); }
 
@@ -729,6 +731,62 @@ TEST(wide_step_by_airtime) {
     check(!above, "never sent above the channel's step");
 }
 
+// A sends `bytes` to B the way Pat writes: 127-byte B2F blocks, holding off while the
+// last BUFFER report is at or above 7 blocks (889 B). Returns seconds from connect to
+// B having everything, or -1.
+static double paced_transfer(Sim& sim, size_t bytes) {
+    const size_t block = 127, limit = 7 * block;
+    auto data = pattern(bytes, 3);
+    size_t written = 0, count = 0;
+    bool pumping = false;
+    std::function<void()> pump = [&]() {
+        pumping = false;
+        while (written < data.size() && count < limit) {
+            size_t n = std::min(block, data.size() - written);
+            count += n;
+            sim.send(0, std::vector<uint8_t>(data.begin() + written, data.begin() + written + n));
+            written += n;
+        }
+    };
+    auto wake = [&]() {
+        if (!pumping) { pumping = true; sim.at(sim.now, pump); }
+    };
+    sim.on_connected = [&](int i) { if (i == 0) wake(); };
+    sim.on_event = [&](int i, const HostEvent& e) {
+        if (i != 0 || e.type != HostEventType::BUFFER) return;
+        count = e.buffer;
+        wake();
+    };
+    sim.wire();
+    sim.st[0].link->connect(sim.st[1].call, 0);
+    sim.run(30 * 60 * 1000, [&]() { return sim.st[1].received.size() >= data.size(); });
+    if (sim.st[1].received != data || sim.st[0].connected_at < 0) return -1;
+    return (sim.now - sim.st[0].connected_at) / 1000.0;
+}
+
+TEST(paced_host_fills_frames) {
+    // A host pacing itself by BUFFER must still get full frames: BUFFER leaves out
+    // what the next burst will carry
+    for (int wide = 0; wide < 2; ++wide) {
+        const char* bw = wide ? "wide" : "narrow";
+        Sim bulk_sim(40 + wide, wide ? wide_params() : Params());
+        bulk_sim.add("ALPHA", false);
+        bulk_sim.add("BRAVO", true);
+        auto r = transfer(bulk_sim, 51200, 0);
+        expect_complete(r, (std::string(bw) + " bulk 50 kB").c_str());
+        double bulk = (bulk_sim.now - bulk_sim.st[0].connected_at) / 1000.0;
+
+        Sim sim(40 + wide, wide ? wide_params() : Params());
+        sim.add("ALPHA", false);
+        sim.add("BRAVO", true);
+        double paced = paced_transfer(sim, 51200);
+        printf("    %s 50 kB: paced host %.1f s, bulk %.1f s, %d DATA frames\n", bw, paced, bulk,
+               sim.st[0].data_frames);
+        check(paced > 0, std::string(bw) + ": paced host's 50 kB delivered intact");
+        check(paced > 0 && paced < bulk * 1.25, std::string(bw) + ": paced host within 25% of bulk time");
+    }
+}
+
 // ./arq_sim trace <seed> <loss> <a_bytes> <b_bytes>: one verbose transfer
 static int trace(int argc, char** argv) {
     uint32_t seed = argc > 2 ? atoi(argv[2]) : 1;
@@ -771,6 +829,7 @@ int main(int argc, char** argv) {
     RUN(wide_negotiation);
     RUN(wide_clean_climbs);
     RUN(wide_step_by_airtime);
+    RUN(paced_host_fills_frames);
     RUN(random_seeds);
     printf("\n%d checks, %d failed\n", g_checks, g_failures);
     return g_failures ? 1 : 0;
